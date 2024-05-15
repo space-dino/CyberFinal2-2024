@@ -51,32 +51,21 @@ def accept_connections(soc: socket.socket, lis):
 
 
 def handle_client(con: connection):
-    """if con in aud_clients:
-        while True:
-            try:
-                data = con.soc.recv(1024 * 2)
-                if not data:
-                    break
-
-                for i in aud_clients:
-                    i.soc.sendall(data)
-            except ConnectionResetError:
-                remove_client(con, vid_clients)
-                remove_client(con, aud_clients)
-    else:"""
     while True:
         try:
             con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
             if con in aud_clients:
                 for i in aud_clients:
-                    ipos = get_index_pos(i)
-                    cpos = get_index_pos(con)
-                    protocol4.send_frame(i.soc, con.frame, 0, cpos, ipos)
+                    if i != con:
+                        ipos = get_index_pos(i)
+                        cpos = get_index_pos(con)
+                        protocol4.send_frame(i.soc, con.frame, 0, cpos, ipos)
             else:
                 for i in vid_clients:
-                    ipos = get_index_pos(i)
-                    cpos = get_index_pos(con)
-                    protocol4.send_frame(i.soc, con.frame, 0, cpos, ipos)
+                    if i != con:
+                        ipos = get_index_pos(i)
+                        cpos = get_index_pos(con)
+                        protocol4.send_frame(i.soc, con.frame, 0, cpos, ipos)
         except ConnectionResetError:
             remove_client(con, vid_clients)
             remove_client(con, aud_clients)

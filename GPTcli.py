@@ -109,7 +109,6 @@ class Client:
             _, encoded_frame = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             compressed_frame = lz4.frame.compress(encoded_frame.tobytes())
             protocol4.send_frame(self.video_socket, compressed_frame, 0, 0, self.my_index)
-            # self.send_data(self.video_socket, compressed_frame, self.my_index)
 
             counter += 1
             if (time.time() - start_time) >= 1:
@@ -123,7 +122,7 @@ class Client:
             frame_data, vid_data, index, self.my_index = protocol4.receive_frame(self.video_socket, self.vid_data)
 
             if frame_data and index != self.my_index:
-                # if frame_data:
+            # if frame_data:
                 decompressed_frame = lz4.frame.decompress(frame_data)
                 frame = np.frombuffer(decompressed_frame, dtype=np.uint8)
                 frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
