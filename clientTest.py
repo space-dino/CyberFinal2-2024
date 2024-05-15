@@ -1,7 +1,7 @@
 import socket
 from tkinter import *
 import customtkinter as tk
-from threading import Thread, Lock
+from threading import Thread
 import cv2
 from PIL import Image, ImageTk
 import pyaudio
@@ -9,6 +9,7 @@ import time
 import numpy as np
 import lz4.frame
 import protocol4
+import select
 
 class Client:
     def __init__(self):
@@ -19,7 +20,6 @@ class Client:
         self.vid = cv2.VideoCapture(0)
         self.vid.set(3, 320)  # Reduce frame width
         self.vid.set(4, 240)  # Reduce frame height
-        self.lock = Lock()  # Lock for thread safety
         self.mainloop()
 
     def setup_audio(self):
@@ -67,8 +67,6 @@ class Client:
     def setup_network(self):
         video_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         audio_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        video_socket.settimeout(5)  # Set socket timeout
-        audio_socket.settimeout(5)  # Set socket timeout
         host = '127.0.0.1'
         port = 9997
 
@@ -81,6 +79,8 @@ class Client:
         self.username_label.configure(text=self.username)
         self.video_socket.connect((self.host, self.port))
         self.audio_socket.connect((self.host, self.port + 1))
+        self.video_socket.setblocking(False)
+        self.audio_socket.setblocking(False)
         print("Connected to server")
         self.start_threads()
 
@@ -124,17 +124,19 @@ class Client:
 
     def receive_vid(self):
         while self.up:
-            try:
-                frame_data, vid_data, index, self.my_index = protocol4.receive_frame(self.video_socket, self.vid_data)
-                if frame_data:
-                    decompressed_frame = lz4.frame.decompress(frame_data)
-                    frame = np.frombuffer(decompressed_frame, dtype=np.uint8)
-                    frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
-                    self.draw_GUI_frame(frame, index)
-            except (BrokenPipeError, ConnectionResetError):
-                print("Connection closed or reset during receive_vid")
-                self.close_connection()
-                break
+            readable, _, _ = select.select([self.video_socket], [], [], 1.0)
+            if readable:
+                try:
+                    frame_data, self.vid_data, index, self.my_index = protocol4.receive_frame(self.video_socket, self.vid_data)
+                    if frame_data:
+                        decompressed_frame = lz4.frame.decompress(frame_data)
+                        frame = np.frombuffer(decompressed_frame, dtype=np.uint8)
+                        frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
+                        self.draw_GUI_frame(frame, index)
+                except (BrokenPipeError, ConnectionResetError):
+                    print("Connection closed or reset during receive_vid")
+                    self.close_connection()
+                    break
 
     def send_aud(self):
         while self.up:
@@ -148,14 +150,16 @@ class Client:
 
     def receive_aud(self):
         while self.up:
-            try:
-                aud_frame, aud_data, index, self.my_index = protocol4.receive_frame(self.audio_socket, self.aud_data)
-                if aud_frame:
-                    self.out_stream.write(aud_frame)
-            except (BrokenPipeError, ConnectionResetError):
-                print("Connection closed or reset during receive_aud")
-                self.close_connection()
-                break
+            readable, _, _ = select.select([self.audio_socket], [], [], 1.0)
+            if readable:
+                try:
+                    aud_frame, self.aud_data, index, self.my_index = protocol4.receive_frame(self.audio_socket, self.aud_data)
+                    if aud_frame:
+                        self.out_stream.write(aud_frame)
+                except (BrokenPipeError, ConnectionResetError):
+                    print("Connection closed or reset during receive_aud")
+                    self.close_connection()
+                    break
 
     def draw_GUI_frame(self, frame, index, fps=None):
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
