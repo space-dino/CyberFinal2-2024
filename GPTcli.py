@@ -68,7 +68,7 @@ class Client:
     def setup_network(self):
         video_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         audio_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        host = '127.0.0.1'
+        host = '10.0.0.9'
         port = 9997
 
         return video_socket, audio_socket, host, port
@@ -151,8 +151,7 @@ class Client:
         self.labels[index].grid(row=index, column=0)
         self.labels[index].config(image=frame)
         self.labels[index].image = frame
-        if index != -1:
-            self.index_label.config(text=f"client {index}")
+        self.index_label.config(text="client " + str(self.my_index) + " " + str(index))
         if fps:
             self.fps_label.config(text=fps)
         self.root.update()
