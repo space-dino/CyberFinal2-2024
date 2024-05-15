@@ -121,8 +121,7 @@ class Client:
         while self.up:
             frame_data, vid_data, index, self.my_index = protocol4.receive_frame(self.video_socket, self.vid_data)
 
-            if frame_data and index != self.my_index:
-            # if frame_data:
+            if frame_data:
                 decompressed_frame = lz4.frame.decompress(frame_data)
                 frame = np.frombuffer(decompressed_frame, dtype=np.uint8)
                 frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
