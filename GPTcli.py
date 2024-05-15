@@ -1,12 +1,11 @@
 import socket
-import tkinter as tk
+from tkinter import *
+import customtkinter as tk
 from threading import Thread
 import cv2
 from PIL import Image, ImageTk
 import pyaudio
 import time
-import pickle
-import struct
 import numpy as np
 import lz4.frame
 import protocol4
@@ -37,21 +36,22 @@ class Client:
         return FORMAT, CHANNELS, RATE, A_CHUNK, audio, in_stream, out_stream
 
     def setup_gui(self):
-        root = tk.Tk()
+        root = tk.CTk()
         root.withdraw()
+        tk.set_appearance_mode("dark")
         username = ""
-        window = tk.Toplevel(root)
+        window = tk.CTkToplevel(root)
         window.title("Enter Your Name")
-        tk.Label(window, text="Enter your name:").pack()
-        entry = tk.Entry(window)
+        tk.CTkLabel(window, text="Enter your name:").pack()
+        entry = tk.CTkEntry(window)
         entry.pack()
-        tk.Button(window, text="Join Meeting", command=self.submit).pack()
-        tk.Button(root, text="Close", command=self.close_connection).grid(row=0, column=1)
-        index_label = tk.Label(root, text="index")
+        tk.CTkButton(window, text="Join Meeting", command=self.submit).pack()
+        tk.CTkButton(root, text="Close", command=self.close_connection).grid(row=0, column=1)
+        index_label = tk.CTkLabel(root, text="index")
         index_label.grid(row=1, column=1)
-        fps_label = tk.Label(root, text="fps")
+        fps_label = tk.CTkLabel(root, text="fps")
         fps_label.grid(row=2, column=1)
-        username_label = tk.Label(root, text="username")
+        username_label = tk.CTkLabel(root, text="username")
         username_label.grid(row=3, column=1)
 
         return root, username, window, entry, index_label, fps_label, username_label
@@ -78,7 +78,7 @@ class Client:
 
         self.window.destroy()
         self.root.deiconify()
-        self.username_label.config(text=self.username)
+        self.username_label.configure(text=self.username)
         self.video_socket.connect((self.host, self.port))
         self.audio_socket.connect((self.host, self.port + 1))
         print("Connected to server")
@@ -145,14 +145,14 @@ class Client:
         frame = Image.fromarray(frame)
         frame = ImageTk.PhotoImage(image=frame)
         while index >= len(self.labels):
-            label = tk.Label(self.root)
+            label = tk.CTkLabel(self.root, text="")
             self.labels.append(label)
         self.labels[index].grid(row=index, column=0)
-        self.labels[index].config(image=frame)
+        self.labels[index].configure(image=frame)
         self.labels[index].image = frame
-        self.index_label.config(text="client " + str(self.my_index) + " " + str(index))
+        self.index_label.configure(text="client " + str(self.my_index) + " " + str(index))
         if fps:
-            self.fps_label.config(text=fps)
+            self.fps_label.configure(text=fps)
         self.root.update()
 
     def start_threads(self):

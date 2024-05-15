@@ -52,6 +52,8 @@ def accept_connections(soc: socket.socket, lis):
 
 def handle_client(con: connection):
     while True:
+        print(sorted([conn.index for conn in vid_clients]))
+
         try:
             con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
             if con in aud_clients:
@@ -59,6 +61,7 @@ def handle_client(con: connection):
                     if i != con:
                         ipos = get_index_pos(i)
                         cpos = get_index_pos(con)
+
                         protocol4.send_frame(i.soc, con.frame, 0, cpos, ipos)
             else:
                 for i in vid_clients:
