@@ -38,7 +38,8 @@ class Client:
     def setup_gui(self):
         root = tk.CTk()
         root.withdraw()
-        tk.set_appearance_mode("dark")
+        # tk.set_appearance_mode("dark")
+        # tk.set_default_color_theme("colors.json")
         username = ""
         window = tk.CTkToplevel(root)
         window.title("Enter Your Name")
