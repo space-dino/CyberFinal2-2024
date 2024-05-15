@@ -68,7 +68,7 @@ class Client:
     def setup_network(self):
         video_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         audio_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        host = '10.0.0.9'
+        host = '127.0.0.1'
         port = 9997
 
         return video_socket, audio_socket, host, port

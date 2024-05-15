@@ -65,6 +65,7 @@ def handle_client(con: connection):
                     if i != con:
                         ipos = get_index_pos(i)
                         cpos = get_index_pos(con)
+
                         protocol4.send_frame(i.soc, con.frame, 0, cpos, ipos)
         except ConnectionResetError:
             remove_client(con, vid_clients)
