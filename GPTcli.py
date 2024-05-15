@@ -121,6 +121,7 @@ class Client:
     def receive_vid(self):
         while self.up:
             frame_data, vid_data, index, self.my_index = protocol4.receive_frame(self.video_socket, self.vid_data)
+            print(frame_data)
 
             if frame_data:
                 decompressed_frame = lz4.frame.decompress(frame_data)
