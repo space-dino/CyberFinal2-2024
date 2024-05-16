@@ -10,6 +10,10 @@ import numpy as np
 import lz4.frame
 import protocol4
 import select
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class Client:
     def __init__(self):
@@ -74,13 +78,19 @@ class Client:
 
     def submit(self):
         self.username = self.entry.get()
-
         self.window.destroy()
         self.root.deiconify()
         self.username_label.configure(text=self.username)
-        self.video_socket.connect((self.host, self.port))
-        self.audio_socket.connect((self.host, self.port + 1))
-        print("Connected to server")
+        try:
+            self.video_socket.connect((self.host, self.port))
+            self.audio_socket.connect((self.host, self.port + 1))
+            self.video_socket.setblocking(False)
+            self.audio_socket.setblocking(False)
+            logging.info("Connected to server")
+        except Exception as e:
+            logging.error(f"Error connecting to server: {e}")
+            self.close_connection()
+            return
         self.start_threads()
 
     def close_connection(self):
@@ -90,7 +100,7 @@ class Client:
         self.out_stream.close()
         self.audio.terminate()
         self.up = False
-        print("Closing Connection")
+        logging.info("Closing Connection")
         self.vid.release()
         self.video_socket.close()
         self.audio_socket.close()
@@ -110,7 +120,7 @@ class Client:
             try:
                 protocol4.send_frame(self.video_socket, compressed_frame, 0, 0, self.my_index)
             except (BrokenPipeError, ConnectionResetError, socket.error) as e:
-                print(f"Error sending video frame: {e}")
+                logging.error(f"Error sending video frame: {e}")
                 self.close_connection()
                 break
 
@@ -126,29 +136,24 @@ class Client:
             try:
                 readable, _, _ = select.select([self.video_socket], [], [], 1.0)
                 if readable:
-                    frame, self.vid_data, _, cpos, ipos = protocol4.receive_frame(self.video_socket, self.vid_data)
-                    decompressed_frame = lz4.frame.decompress(frame)
-                    nparr = np.frombuffer(decompressed_frame, np.uint8)
-                    img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                    if cpos < len(self.labels):
-                        self.draw_GUI_frame(img_np, cpos, "")
-                    else:
-                        label = tk.CTkLabel(self.root)
-                        label.grid(row=0, column=cpos)
-                        self.labels.append(label)
-                        self.draw_GUI_frame(img_np, cpos, "")
-            except (ConnectionResetError, socket.error) as e:
-                print(f"Error receiving video frame: {e}")
+                    frame_data, self.vid_data, index, self.my_index = protocol4.receive_frame(self.video_socket, self.vid_data)
+                    if frame_data:
+                        decompressed_frame = lz4.frame.decompress(frame_data)
+                        frame = np.frombuffer(decompressed_frame, dtype=np.uint8)
+                        frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
+                        self.draw_GUI_frame(frame, index)
+            except (BrokenPipeError, ConnectionResetError, socket.error) as e:
+                logging.error(f"Error receiving video frame: {e}")
                 self.close_connection()
                 break
 
     def send_aud(self):
         while self.up:
+            aud_frame = self.in_stream.read(self.A_CHUNK)
             try:
-                data = self.in_stream.read(self.A_CHUNK)
-                protocol4.send_frame(self.audio_socket, data, 0, 0, self.my_index)
+                protocol4.send_frame(self.audio_socket, aud_frame, 0, 0, self.my_index)
             except (BrokenPipeError, ConnectionResetError, socket.error) as e:
-                print(f"Error sending audio data: {e}")
+                logging.error(f"Error sending audio frame: {e}")
                 self.close_connection()
                 break
 
@@ -157,37 +162,36 @@ class Client:
             try:
                 readable, _, _ = select.select([self.audio_socket], [], [], 1.0)
                 if readable:
-                    frame, self.aud_data, _, _, _ = protocol4.receive_frame(self.audio_socket, self.aud_data)
-                    self.out_stream.write(frame)
-            except (ConnectionResetError, socket.error) as e:
-                print(f"Error receiving audio data: {e}")
+                    aud_frame, self.aud_data, index, self.my_index = protocol4.receive_frame(self.audio_socket, self.aud_data)
+                    if aud_frame:
+                        self.out_stream.write(aud_frame)
+            except (BrokenPipeError, ConnectionResetError, socket.error) as e:
+                logging.error(f"Error receiving audio frame: {e}")
                 self.close_connection()
                 break
 
+    def draw_GUI_frame(self, frame, index, fps=None):
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame = Image.fromarray(frame)
+        frame = tk.CTkImage(light_image=frame, size=(400, 300))
+        while index >= len(self.labels):
+            label = tk.CTkLabel(self.root, text="")
+            self.labels.append(label)
+        self.labels[index].grid(row=index, column=0)
+        self.labels[index].configure(image=frame)
+        self.labels[index].image = frame
+        self.index_label.configure(text="client " + str(self.my_index) + " " + str(index))
+        if fps:
+            self.fps_label.configure(text=fps)
+        self.root.update()
+
     def start_threads(self):
-        Thread(target=self.send_vid, daemon=True).start()
-        Thread(target=self.receive_vid, daemon=True).start()
-        Thread(target=self.send_aud, daemon=True).start()
-        Thread(target=self.receive_aud, daemon=True).start()
+        Thread(target=self.send_vid).start()
+        Thread(target=self.send_aud).start()
+        Thread(target=self.receive_vid).start()
+        Thread(target=self.receive_aud).start()
 
     def mainloop(self):
         self.root.mainloop()
 
-    def draw_GUI_frame(self, frame, cpos, fps_text):
-        cv2.putText(frame, fps_text, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
-        cv2.putText(frame, f"{self.username}", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
-        img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        img_pil = Image.fromarray(img)
-        imgtk = ImageTk.PhotoImage(image=img_pil)
-        if cpos < len(self.labels):
-            self.labels[cpos].configure(image=imgtk)
-            self.labels[cpos].image = imgtk
-        else:
-            label = tk.CTkLabel(self.root)
-            label.grid(row=0, column=cpos)
-            self.labels.append(label)
-            self.labels[cpos].configure(image=imgtk)
-            self.labels[cpos].image = imgtk
-
-if __name__ == "__main__":
-    client = Client()
+Client()
