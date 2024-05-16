@@ -19,24 +19,26 @@ aud_server_socket.bind(aud_socket_address)
 vid_server_socket.listen()
 aud_server_socket.listen()
 
-print(f"Server started on {socket.gethostname()} - Video: {vid_socket_address}, Audio: {aud_socket_address}")
+print(socket.gethostname())
+print("Listening video at", vid_socket_address, "audio at", aud_socket_address)
 
 vid_clients = []
 aud_clients = []
 
-class Connection:
+
+class connection:
     def __init__(self, soc: socket.socket, index: int):
         self.soc = soc
         self.frame = b''
         self.data = b''
         self.index = index
 
+
 def accept_connections(soc: socket.socket, lis):
     while True:
         client_socket, addr = soc.accept()
-        client_socket.setblocking(False)
         cli_index = int(str(addr[0]).replace(".", ""))
-        con = Connection(client_socket, cli_index)
+        con = connection(client_socket, cli_index)
         lis.append(con)
 
         if lis == vid_clients:
@@ -46,14 +48,15 @@ def accept_connections(soc: socket.socket, lis):
         if lis == aud_clients:
             print(f"GOT AUDIO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
 
-        Thread(target=handle_client, args=(con, lis)).start()
+        Thread(target=handle_client, args=(con,lis,)).start()
 
-def handle_client(con: Connection, client_list):
+
+def handle_client(con: connection, client_list):
     while True:
         try:
             readable, _, _ = select.select([con.soc], [], [], 1.0)
             if readable:
-                con.frame, con.data, _, _ = protocol4.receive_frame(con.soc, con.data)
+                con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
                 if con in aud_clients:
                     broadcast(con, aud_clients)
                 else:
@@ -63,36 +66,45 @@ def handle_client(con: Connection, client_list):
             remove_client(con, client_list)
             break
 
+
 def broadcast(con, client_list):
     for client in client_list:
         if client != con:
             ipos = get_index_pos(client)
             cpos = get_index_pos(con)
-            print(cpos, ipos)
             try:
                 protocol4.send_frame(client.soc, con.frame, 0, cpos, ipos)
             except (BrokenPipeError, ConnectionResetError, socket.error) as e:
                 print(f"Error broadcasting frame: {e}")
                 remove_client(client, client_list)
 
-def get_index_pos(con):
+
+def get_index_pos(i):
     sorted_numbers = sorted([conn.index for conn in vid_clients])
-    pos = sorted_numbers.index(con.index)
+    pos = sorted_numbers.index(i.index)
     return pos
 
-def remove_client(con: Connection, lis):
-    if con in lis:
-        print(f"Removing Connection {con.index}")
-        lis.remove(con)
-        sq = sqlite3.connect("video_chat.db")
-        cur = sq.cursor()
-        now = datetime.now()
-        current_time = now.strftime("%H:%M:%S")
-        sql = f'UPDATE participant SET logout_time = "{current_time}" WHERE name = {con.index}'
-        cur.execute(sql)
-        sq.commit()
-        res = cur.execute("SELECT * FROM participant")
-        print("*****SQL******\n", res.fetchall())
+
+def remove_client(con: connection, lis):
+    for i in lis:
+        if i.index == con.index:
+            print(f"Removing Connection {i.index}")
+            lis.remove(i)
+            sq = sqlite3.connect("video_chat.db")
+            cur = sq.cursor()
+            now = datetime.now()
+            current_time = now.strftime("%H:%M:%S")
+            sql = f'UPDATE participant SET logout_time = "{current_time}" WHERE name = {i.index}'
+            cur.execute(sql)
+            sq.commit()
+            res = cur.execute("SELECT * FROM participant")
+            print("*****SQL******\n", res.fetchall())
+
+            for o in range(0, len(lis)):
+                if lis[o] is None:
+                    if o < len(lis) - 1:
+                        lis[o].index -= 1
+
 
 def update_database(name, ip):
     sq = sqlite3.connect("video_chat.db")
@@ -111,6 +123,7 @@ def update_database(name, ip):
         sq.commit()
         res = cur.execute("SELECT * FROM participant")
         print("*****SQL******\n", res.fetchall())
+
 
 Thread(target=accept_connections, args=(vid_server_socket, vid_clients,)).start()
 Thread(target=accept_connections, args=(aud_server_socket, aud_clients,)).start()
