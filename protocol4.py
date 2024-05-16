@@ -8,8 +8,7 @@ index_size = struct.calcsize("I")  # unsigned Int = 4 bytes
 
 def send_frame(soc: socket, frame, flag: int, index: int, my_index: int):
     data = pickle.dumps(frame)
-    message = struct.pack("I", index) + struct.pack("I", my_index) + struct.pack("Q", len(data)) + data
-    # message = struct.pack("I", index) + struct.pack("I", my_index) + struct.pack("I", flag) + struct.pack("Q", len(data)) + data
+    message = struct.pack("I", index) + struct.pack("I", my_index) + struct.pack("I", flag) + struct.pack("Q", len(data)) + data
 
     try:
         soc.sendall(message)
@@ -21,7 +20,7 @@ def send_frame(soc: socket, frame, flag: int, index: int, my_index: int):
 
     index - 4 bytes unsigned int
     my_index - 4 bytes unsigned int
-    ------------flag - 4 bytes unsigned int (0: video, 1: audio, 2: chat) - flag removed because using different sockets
+    flag - 4 bytes unsigned int (0: video, 1: audio, 2: chat) - Flag used for screenshare
     data_length - 8 bytes unsigned long long
     data - data_length bytes data
 
