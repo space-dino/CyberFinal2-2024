@@ -9,7 +9,7 @@ import time
 import numpy as np
 import lz4.frame
 import protocol4
-import select
+
 
 class Client:
     def __init__(self):
@@ -38,6 +38,8 @@ class Client:
     def setup_gui(self):
         root = tk.CTk()
         root.withdraw()
+        # tk.set_appearance_mode("dark")
+        # tk.set_default_color_theme("colors.json")
         username = ""
         window = tk.CTkToplevel(root)
         window.title("Enter Your Name")
@@ -79,8 +81,6 @@ class Client:
         self.username_label.configure(text=self.username)
         self.video_socket.connect((self.host, self.port))
         self.audio_socket.connect((self.host, self.port + 1))
-        self.video_socket.setblocking(False)
-        self.audio_socket.setblocking(False)
         print("Connected to server")
         self.start_threads()
 
@@ -108,12 +108,7 @@ class Client:
             frame = cv2.flip(frame, 1)
             _, encoded_frame = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             compressed_frame = lz4.frame.compress(encoded_frame.tobytes())
-            try:
-                protocol4.send_frame(self.video_socket, compressed_frame, 0, 0, self.my_index)
-            except (BrokenPipeError, ConnectionResetError):
-                print("Connection closed or reset during send_vid")
-                self.close_connection()
-                break
+            protocol4.send_frame(self.video_socket, compressed_frame, 0, 0, self.my_index)
 
             counter += 1
             if (time.time() - start_time) >= 1:
@@ -124,42 +119,27 @@ class Client:
 
     def receive_vid(self):
         while self.up:
-            readable, _, _ = select.select([self.video_socket], [], [], 1.0)
-            if readable:
-                try:
-                    frame_data, self.vid_data, index, self.my_index = protocol4.receive_frame(self.video_socket, self.vid_data)
-                    if frame_data:
-                        decompressed_frame = lz4.frame.decompress(frame_data)
-                        frame = np.frombuffer(decompressed_frame, dtype=np.uint8)
-                        frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
-                        self.draw_GUI_frame(frame, index)
-                except (BrokenPipeError, ConnectionResetError):
-                    print("Connection closed or reset during receive_vid")
-                    self.close_connection()
-                    break
+            frame_data, vid_data, index, self.my_index = protocol4.receive_frame(self.video_socket, self.vid_data)
+            print(frame_data)
+
+            if frame_data:
+                decompressed_frame = lz4.frame.decompress(frame_data)
+                frame = np.frombuffer(decompressed_frame, dtype=np.uint8)
+                frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
+                self.draw_GUI_frame(frame, index)
 
     def send_aud(self):
         while self.up:
             aud_frame = self.in_stream.read(self.A_CHUNK)
-            try:
-                protocol4.send_frame(self.audio_socket, aud_frame, 0, 0, self.my_index)
-            except (BrokenPipeError, ConnectionResetError):
-                print("Connection closed or reset during send_aud")
-                self.close_connection()
-                break
+            protocol4.send_frame(self.audio_socket, aud_frame, 0, 0, self.my_index)
 
     def receive_aud(self):
         while self.up:
-            readable, _, _ = select.select([self.audio_socket], [], [], 1.0)
-            if readable:
-                try:
-                    aud_frame, self.aud_data, index, self.my_index = protocol4.receive_frame(self.audio_socket, self.aud_data)
-                    if aud_frame:
-                        self.out_stream.write(aud_frame)
-                except (BrokenPipeError, ConnectionResetError):
-                    print("Connection closed or reset during receive_aud")
-                    self.close_connection()
-                    break
+            aud_frame, aud_data, index, self.my_index = protocol4.receive_frame(self.audio_socket, self.aud_data)
+
+            if not aud_frame:
+                break
+            self.out_stream.write(aud_frame)
 
     def draw_GUI_frame(self, frame, index, fps=None):
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -184,5 +164,6 @@ class Client:
 
     def mainloop(self):
         self.root.mainloop()
+
 
 Client()
