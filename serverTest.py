@@ -3,7 +3,7 @@ from threading import Thread
 import protocol4
 import sqlite3
 from datetime import datetime
-import select  # Import the select module
+import select
 
 vid_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 aud_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -53,7 +53,7 @@ def handle_client(con: Connection, client_list):
         try:
             readable, _, _ = select.select([con.soc], [], [], 1.0)
             if readable:
-                con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
+                con.frame, con.data, _, _ = protocol4.receive_frame(con.soc, con.data)
                 if con in aud_clients:
                     broadcast(con, aud_clients)
                 else:
@@ -68,6 +68,7 @@ def broadcast(con, client_list):
         if client != con:
             ipos = get_index_pos(client)
             cpos = get_index_pos(con)
+            print(cpos, ipos)
             try:
                 protocol4.send_frame(client.soc, con.frame, 0, cpos, ipos)
             except (BrokenPipeError, ConnectionResetError, socket.error) as e:

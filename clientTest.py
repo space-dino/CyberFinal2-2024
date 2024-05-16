@@ -173,23 +173,23 @@ class Client:
     def mainloop(self):
         self.root.mainloop()
 
-    """def draw_GUI_frame(self, frame, cpos, fps_text):
+    def draw_GUI_frame(self, frame, cpos, fps_text):
         cv2.putText(frame, fps_text, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
         cv2.putText(frame, f"{self.username}", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
         img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         img_pil = Image.fromarray(img)
-        imgtk = ImageTk.PhotoImage(image=img_pil)
+        imgtk = tk.CTkImage(light_image=img_pil, size=(400, 300))
         if cpos < len(self.labels):
-            self.labels[cpos].configure(image=imgtk)
+            self.labels[cpos].configure(image=imgtk, text="")
             self.labels[cpos].image = imgtk
         else:
             label = tk.CTkLabel(self.root)
-            label.grid(row=0, column=cpos)
+            label.grid(row=cpos, column=0)
             self.labels.append(label)
             self.labels[cpos].configure(image=imgtk)
-            self.labels[cpos].image = imgtk"""
+            self.labels[cpos].image = imgtk
 
-    def draw_GUI_frame(self, frame, index, fps=None):
+    """def draw_GUI_frame(self, frame, index, fps=None):
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame = Image.fromarray(frame)
         frame = tk.CTkImage(light_image=frame, size=(400, 300))
@@ -202,7 +202,7 @@ class Client:
         self.index_label.configure(text="client " + str(self.my_index) + " " + str(index))
         if fps:
             self.fps_label.configure(text=fps)
-        self.root.update()
+        self.root.update()"""
 
 if __name__ == "__main__":
     client = Client()
