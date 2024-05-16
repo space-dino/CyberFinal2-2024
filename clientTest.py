@@ -10,6 +10,10 @@ import numpy as np
 import lz4.frame
 import protocol4
 import select
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class Client:
     def __init__(self):
@@ -77,11 +81,16 @@ class Client:
         self.window.destroy()
         self.root.deiconify()
         self.username_label.configure(text=self.username)
-        self.video_socket.connect((self.host, self.port))
-        self.audio_socket.connect((self.host, self.port + 1))
-        self.video_socket.setblocking(False)
-        self.audio_socket.setblocking(False)
-        print("Connected to server")
+        try:
+            self.video_socket.connect((self.host, self.port))
+            self.audio_socket.connect((self.host, self.port + 1))
+            self.video_socket.setblocking(False)
+            self.audio_socket.setblocking(False)
+            logging.info("Connected to server")
+        except Exception as e:
+            logging.error(f"Error connecting to server: {e}")
+            self.close_connection()
+            return
         self.start_threads()
 
     def close_connection(self):
@@ -91,7 +100,7 @@ class Client:
         self.out_stream.close()
         self.audio.terminate()
         self.up = False
-        print("Closing Connection")
+        logging.info("Closing Connection")
         self.vid.release()
         self.video_socket.close()
         self.audio_socket.close()
@@ -110,8 +119,8 @@ class Client:
             compressed_frame = lz4.frame.compress(encoded_frame.tobytes())
             try:
                 protocol4.send_frame(self.video_socket, compressed_frame, 0, 0, self.my_index)
-            except (BrokenPipeError, ConnectionResetError):
-                print("Connection closed or reset during send_vid")
+            except (BrokenPipeError, ConnectionResetError, socket.error) as e:
+                logging.error(f"Error sending video frame: {e}")
                 self.close_connection()
                 break
 
@@ -124,47 +133,47 @@ class Client:
 
     def receive_vid(self):
         while self.up:
-            readable, _, _ = select.select([self.video_socket], [], [], 1.0)
-            if readable:
-                try:
+            try:
+                readable, _, _ = select.select([self.video_socket], [], [], 1.0)
+                if readable:
                     frame_data, self.vid_data, index, self.my_index = protocol4.receive_frame(self.video_socket, self.vid_data)
                     if frame_data:
                         decompressed_frame = lz4.frame.decompress(frame_data)
                         frame = np.frombuffer(decompressed_frame, dtype=np.uint8)
                         frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
                         self.draw_GUI_frame(frame, index)
-                except (BrokenPipeError, ConnectionResetError):
-                    print("Connection closed or reset during receive_vid")
-                    self.close_connection()
-                    break
+            except (BrokenPipeError, ConnectionResetError, socket.error) as e:
+                logging.error(f"Error receiving video frame: {e}")
+                self.close_connection()
+                break
 
     def send_aud(self):
         while self.up:
             aud_frame = self.in_stream.read(self.A_CHUNK)
             try:
                 protocol4.send_frame(self.audio_socket, aud_frame, 0, 0, self.my_index)
-            except (BrokenPipeError, ConnectionResetError):
-                print("Connection closed or reset during send_aud")
+            except (BrokenPipeError, ConnectionResetError, socket.error) as e:
+                logging.error(f"Error sending audio frame: {e}")
                 self.close_connection()
                 break
 
     def receive_aud(self):
         while self.up:
-            readable, _, _ = select.select([self.audio_socket], [], [], 1.0)
-            if readable:
-                try:
+            try:
+                readable, _, _ = select.select([self.audio_socket], [], [], 1.0)
+                if readable:
                     aud_frame, self.aud_data, index, self.my_index = protocol4.receive_frame(self.audio_socket, self.aud_data)
                     if aud_frame:
                         self.out_stream.write(aud_frame)
-                except (BrokenPipeError, ConnectionResetError):
-                    print("Connection closed or reset during receive_aud")
-                    self.close_connection()
-                    break
+            except (BrokenPipeError, ConnectionResetError, socket.error) as e:
+                logging.error(f"Error receiving audio frame: {e}")
+                self.close_connection()
+                break
 
     def draw_GUI_frame(self, frame, index, fps=None):
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame = Image.fromarray(frame)
-        frame = tk.CTkImage(light_image=frame, size=(400, 300))
+        frame = ImageTk.PhotoImage(image=frame)
         while index >= len(self.labels):
             label = tk.CTkLabel(self.root, text="")
             self.labels.append(label)
