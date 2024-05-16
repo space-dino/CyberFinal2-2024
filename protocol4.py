@@ -35,8 +35,8 @@ def receive_frame(soc: socket, data: bytes):
     packed_my_index, data = receive_parameter(soc, data, index_size)  # my_index
     my_index = struct.unpack("I", packed_my_index)[0]
 
-    # packed_flag, data = receive_parameter(soc, data, index_size)  # flag
-    # flag = struct.unpack("I", packed_flag)[0]
+    packed_flag, data = receive_parameter(soc, data, index_size)  # flag
+    flag = struct.unpack("I", packed_flag)[0]
 
     packed_msg_size, data = receive_parameter(soc, data, payload_size)  # data_length
     msg_size = struct.unpack("Q", packed_msg_size)[0]
@@ -44,8 +44,7 @@ def receive_frame(soc: socket, data: bytes):
     frame_data, data = receive_parameter(soc, data, msg_size)  # data
     frame = pickle.loads(frame_data)
 
-    # return frame, data, flag, index, my_index
-    return frame, data, index, my_index
+    return frame, data, flag, index, my_index
 
 
 def receive_parameter(soc: socket, data, size):

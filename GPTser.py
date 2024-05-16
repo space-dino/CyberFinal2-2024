@@ -3,6 +3,7 @@ from threading import Thread
 import protocol4
 import sqlite3
 from datetime import datetime
+import select
 
 vid_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 aud_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -22,6 +23,7 @@ print(socket.gethostname())
 print("Listening video at", vid_socket_address, "audio at", aud_socket_address)
 
 vid_clients = []
+vid_share_indexes = []
 aud_clients = []
 
 
@@ -43,40 +45,46 @@ def accept_connections(soc: socket.socket, lis):
         if lis == vid_clients:
             print(f"GOT VIDEO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
             update_database(cli_index, addr[0])
+            vid_share_indexes.append(con.index)
 
         if lis == aud_clients:
             print(f"GOT AUDIO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
 
-        Thread(target=handle_client, args=(con,)).start()
+        Thread(target=handle_client, args=(con,lis,)).start()
 
 
-def handle_client(con: connection):
+def handle_client(con: connection, client_list):
     while True:
         try:
-            con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
-            if con in aud_clients:
-                for i in aud_clients:
-                    if i != con:
-                        ipos = get_index_pos(i)
-                        cpos = get_index_pos(con)
+            readable, _, _ = select.select([con.soc], [], [], 1.0)
+            if readable:
+                con.frame, con.data, flag, *_ = protocol4.receive_frame(con.soc, con.data)
+                if con in aud_clients:
+                    broadcast(con, aud_clients)
+                else:
+                    if flag == 1:
+                        vid_share_indexes.append(con.index + 1)
+                    broadcast(con, vid_clients)
+        except (ConnectionResetError, socket.error) as e:
+            print(f"Connection error: {e}")
+            remove_client(con, client_list)
+            break
 
-                        protocol4.send_frame(i.soc, con.frame, 0, cpos, ipos)
-            else:
-                for i in vid_clients:
-                    if i != con:
-                        ipos = get_index_pos(i)
-                        cpos = get_index_pos(con)
 
-                        print(cpos, ipos)
-
-                        protocol4.send_frame(i.soc, con.frame, 0, cpos, ipos)
-        except ConnectionResetError:
-            remove_client(con, vid_clients)
-            remove_client(con, aud_clients)
+def broadcast(con, client_list):
+    for client in client_list:
+        if client != con:
+            ipos = get_index_pos(client)
+            cpos = get_index_pos(con)
+            try:
+                protocol4.send_frame(client.soc, con.frame, 0, cpos, ipos)
+            except (BrokenPipeError, ConnectionResetError, socket.error) as e:
+                print(f"Error broadcasting frame: {e}")
+                remove_client(client, client_list)
 
 
 def get_index_pos(i):
-    sorted_numbers = sorted([conn.index for conn in vid_clients])
+    sorted_numbers = sorted([conn.index for conn in vid_share_indexes])
     pos = sorted_numbers.index(i.index)
     return pos
 
@@ -86,6 +94,8 @@ def remove_client(con: connection, lis):
         if i.index == con.index:
             print(f"Removing Connection {i.index}")
             lis.remove(i)
+            if lis == vid_clients:
+                vid_share_indexes.remove(i.index)
             sq = sqlite3.connect("video_chat.db")
             cur = sq.cursor()
             now = datetime.now()

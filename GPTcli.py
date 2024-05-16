@@ -3,30 +3,32 @@ from tkinter import *
 import customtkinter as tk
 from threading import Thread
 import cv2
+import mss
 from PIL import Image, ImageTk
 import pyaudio
 import time
 import numpy as np
 import lz4.frame
 import protocol4
-
+import select
 
 class Client:
     def __init__(self):
         self.FORMAT, self.CHANNELS, self.RATE, self.A_CHUNK, self.audio, self.in_stream, self.out_stream = self.setup_audio()
-        self.root, self.username, self.window, self.entry, self.index_label, self.fps_label, self.username_label = self.setup_gui()
+        self.root, self.username, self.window, self.entry, self.index_label, self.fps_label, self.username_label, self.screen_share_button = self.setup_gui()
         self.video_socket, self.audio_socket, self.host, self.port = self.setup_network()
         self.labels, self.vid_data, self.aud_data, self.my_index, self.up = self.setup_data()
         self.vid = cv2.VideoCapture(0)
         self.vid.set(3, 320)  # Reduce frame width
         self.vid.set(4, 240)  # Reduce frame height
+        self.is_sharing_screen = False
         self.mainloop()
 
     def setup_audio(self):
         FORMAT = pyaudio.paInt16
         CHANNELS = 1
-        RATE = 44100
-        A_CHUNK = 1024
+        RATE = int(44100/2)
+        A_CHUNK = int(1024/2)
         audio = pyaudio.PyAudio()
         in_stream = audio.open(format=FORMAT, channels=CHANNELS,
                                rate=RATE, input=True, frames_per_buffer=A_CHUNK)
@@ -38,8 +40,6 @@ class Client:
     def setup_gui(self):
         root = tk.CTk()
         root.withdraw()
-        # tk.set_appearance_mode("dark")
-        # tk.set_default_color_theme("colors.json")
         username = ""
         window = tk.CTkToplevel(root)
         window.title("Enter Your Name")
@@ -54,8 +54,10 @@ class Client:
         fps_label.grid(row=2, column=1)
         username_label = tk.CTkLabel(root, text="username")
         username_label.grid(row=3, column=1)
+        screen_share_button = tk.CTkButton(root, text="Share Screen", command=self.start_screen_sharing)
+        screen_share_button.grid(row=4, column=1)
 
-        return root, username, window, entry, index_label, fps_label, username_label
+        return root, username, window, entry, index_label, fps_label, username_label, screen_share_button
 
     def setup_data(self):
         labels = []
@@ -76,6 +78,7 @@ class Client:
 
     def submit(self):
         self.username = self.entry.get()
+
         self.window.destroy()
         self.root.deiconify()
         self.username_label.configure(text=self.username)
@@ -108,7 +111,12 @@ class Client:
             frame = cv2.flip(frame, 1)
             _, encoded_frame = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             compressed_frame = lz4.frame.compress(encoded_frame.tobytes())
-            protocol4.send_frame(self.video_socket, compressed_frame, 0, 0, self.my_index)
+            try:
+                protocol4.send_frame(self.video_socket, compressed_frame, 0, 0, self.my_index)
+            except (BrokenPipeError, ConnectionResetError, socket.error) as e:
+                print(f"Error sending video frame: {e}")
+                self.close_connection()
+                break
 
             counter += 1
             if (time.time() - start_time) >= 1:
@@ -119,27 +127,84 @@ class Client:
 
     def receive_vid(self):
         while self.up:
-            frame_data, vid_data, index, self.my_index = protocol4.receive_frame(self.video_socket, self.vid_data)
-            print(frame_data)
+            try:
+                readable, _, _ = select.select([self.video_socket], [], [], 1.0)
+                if readable:
+                    frame, self.vid_data, _, cpos, self.my_index = protocol4.receive_frame(self.video_socket, self.vid_data)
+                    decompressed_frame = lz4.frame.decompress(frame)
+                    nparr = np.frombuffer(decompressed_frame, np.uint8)
+                    img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-            if frame_data:
-                decompressed_frame = lz4.frame.decompress(frame_data)
-                frame = np.frombuffer(decompressed_frame, dtype=np.uint8)
-                frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
-                self.draw_GUI_frame(frame, index)
+                    self.draw_GUI_frame(img_np, cpos, "")
+            except (ConnectionResetError, socket.error) as e:
+                print(f"Error receiving video frame: {e}")
+                self.close_connection()
+                break
 
     def send_aud(self):
         while self.up:
-            aud_frame = self.in_stream.read(self.A_CHUNK)
-            protocol4.send_frame(self.audio_socket, aud_frame, 0, 0, self.my_index)
+            try:
+                data = self.in_stream.read(self.A_CHUNK)
+                protocol4.send_frame(self.audio_socket, data, 0, 0, self.my_index)
+            except (BrokenPipeError, ConnectionResetError, socket.error) as e:
+                print(f"Error sending audio data: {e}")
+                self.close_connection()
+                break
 
     def receive_aud(self):
         while self.up:
-            aud_frame, aud_data, index, self.my_index = protocol4.receive_frame(self.audio_socket, self.aud_data)
-
-            if not aud_frame:
+            try:
+                readable, _, _ = select.select([self.audio_socket], [], [], 1.0)
+                if readable:
+                    frame, self.aud_data, *_ = protocol4.receive_frame(self.audio_socket, self.aud_data)
+                    self.out_stream.write(frame)
+            except (ConnectionResetError, socket.error) as e:
+                print(f"Error receiving audio data: {e}")
+                self.close_connection()
                 break
-            self.out_stream.write(aud_frame)
+
+    def send_screen(self):
+        counter = 0
+        start_time = time.time()
+        fps = 0
+        while self.up and self.is_sharing_screen:
+            frame = self.capture_screen()
+            _, encoded_frame = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            compressed_frame = lz4.frame.compress(encoded_frame.tobytes())
+            protocol4.send_frame(self.video_socket, compressed_frame, 1, 0, self.my_index)
+
+            counter += 1
+            if (time.time() - start_time) >= 1:
+                fps = counter
+                counter = 0
+                start_time = time.time()
+            self.draw_GUI_frame(frame, self.my_index, f"{fps} fps")
+
+    def capture_screen(self):
+        with mss.mss() as sct:
+            monitor = sct.monitors[1]  # Capture the primary monitor
+            img = sct.grab(monitor)
+            frame = np.array(img)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+            return frame
+
+    def start_screen_sharing(self):
+        if not self.is_sharing_screen:
+            self.is_sharing_screen = True
+            Thread(target=self.send_screen, daemon=True).start()
+            self.screen_share_button.configure(text="Stop Sharing")
+        else:
+            self.is_sharing_screen = False
+            self.screen_share_button.configure(text="Share Screen")
+
+    def start_threads(self):
+        Thread(target=self.send_vid, daemon=True).start()
+        Thread(target=self.receive_vid, daemon=True).start()
+        Thread(target=self.send_aud, daemon=True).start()
+        Thread(target=self.receive_aud, daemon=True).start()
+
+    def mainloop(self):
+        self.root.mainloop()
 
     def draw_GUI_frame(self, frame, index, fps=None):
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -156,14 +221,5 @@ class Client:
             self.fps_label.configure(text=fps)
         self.root.update()
 
-    def start_threads(self):
-        Thread(target=self.send_vid).start()
-        Thread(target=self.send_aud).start()
-        Thread(target=self.receive_vid).start()
-        Thread(target=self.receive_aud).start()
-
-    def mainloop(self):
-        self.root.mainloop()
-
-
-Client()
+if __name__ == "__main__":
+    client = Client()
