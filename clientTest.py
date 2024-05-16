@@ -130,7 +130,13 @@ class Client:
                     decompressed_frame = lz4.frame.decompress(frame)
                     nparr = np.frombuffer(decompressed_frame, np.uint8)
                     img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                    self.draw_GUI_frame(img_np, cpos, "")
+                    if cpos < len(self.labels):
+                        self.draw_GUI_frame(img_np, cpos, "")
+                    else:
+                        label = tk.CTkLabel(self.root)
+                        label.grid(row=0, column=cpos)
+                        self.labels.append(label)
+                        self.draw_GUI_frame(img_np, cpos, "")
             except (ConnectionResetError, socket.error) as e:
                 print(f"Error receiving video frame: {e}")
                 self.close_connection()
