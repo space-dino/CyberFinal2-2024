@@ -55,6 +55,7 @@ def accept_connections(soc: socket.socket, lis):
 
 def handle_client(con: connection, client_list):
     while True:
+        print(vid_share_indexes)
         try:
             readable, _, _ = select.select([con.soc], [], [], 1.0)
             if readable:
@@ -62,7 +63,7 @@ def handle_client(con: connection, client_list):
                 if con in aud_clients:
                     broadcast(con, aud_clients)
                 else:
-                    if flag == 1:
+                    if flag == 1 and ((con.index + 1) not in vid_share_indexes):
                         vid_share_indexes.append(con.index + 1)
                     broadcast(con, vid_clients)
         except (ConnectionResetError, socket.error) as e:
@@ -84,7 +85,7 @@ def broadcast(con, client_list):
 
 
 def get_index_pos(i):
-    sorted_numbers = sorted([conn.index for conn in vid_share_indexes])
+    sorted_numbers = sorted(vid_share_indexes)
     pos = sorted_numbers.index(i.index)
     return pos
 
