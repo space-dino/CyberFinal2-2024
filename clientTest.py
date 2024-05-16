@@ -164,7 +164,7 @@ class Client:
     def draw_GUI_frame(self, frame, index, fps=None):
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame = Image.fromarray(frame)
-        frame = ImageTk.PhotoImage(image=frame)
+        frame = tk.CTkImage(light_image=frame, size=(400, 300))
         while index >= len(self.labels):
             label = tk.CTkLabel(self.root, text="")
             self.labels.append(label)
