@@ -3,11 +3,7 @@ from threading import Thread
 import protocol4
 import sqlite3
 from datetime import datetime
-import logging
 import select
-
-# Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 vid_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 aud_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -23,7 +19,7 @@ aud_server_socket.bind(aud_socket_address)
 vid_server_socket.listen()
 aud_server_socket.listen()
 
-logging.info(f"Server started on {socket.gethostname()} - Video: {vid_socket_address}, Audio: {aud_socket_address}")
+print(f"Server started on {socket.gethostname()} - Video: {vid_socket_address}, Audio: {aud_socket_address}")
 
 vid_clients = []
 aud_clients = []
@@ -44,11 +40,11 @@ def accept_connections(soc: socket.socket, lis):
         lis.append(con)
 
         if lis == vid_clients:
-            logging.info(f"GOT VIDEO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
+            print(f"GOT VIDEO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
             update_database(cli_index, addr[0])
 
         if lis == aud_clients:
-            logging.info(f"GOT AUDIO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
+            print(f"GOT AUDIO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
 
         Thread(target=handle_client, args=(con, lis)).start()
 
@@ -57,13 +53,13 @@ def handle_client(con: Connection, client_list):
         try:
             readable, _, _ = select.select([con.soc], [], [], 1.0)
             if readable:
-                con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
+                con.frame, con.data, _, _ = protocol4.receive_frame(con.soc, con.data)
                 if con in aud_clients:
                     broadcast(con, aud_clients)
                 else:
                     broadcast(con, vid_clients)
         except (ConnectionResetError, socket.error) as e:
-            logging.error(f"Connection error: {e}")
+            print(f"Connection error: {e}")
             remove_client(con, client_list)
             break
 
@@ -75,7 +71,7 @@ def broadcast(con, client_list):
             try:
                 protocol4.send_frame(client.soc, con.frame, 0, cpos, ipos)
             except (BrokenPipeError, ConnectionResetError, socket.error) as e:
-                logging.error(f"Error broadcasting frame: {e}")
+                print(f"Error broadcasting frame: {e}")
                 remove_client(client, client_list)
 
 def get_index_pos(con):
@@ -85,7 +81,7 @@ def get_index_pos(con):
 
 def remove_client(con: Connection, lis):
     if con in lis:
-        logging.info(f"Removing Connection {con.index}")
+        print(f"Removing Connection {con.index}")
         lis.remove(con)
         sq = sqlite3.connect("video_chat.db")
         cur = sq.cursor()
@@ -95,7 +91,7 @@ def remove_client(con: Connection, lis):
         cur.execute(sql)
         sq.commit()
         res = cur.execute("SELECT * FROM participant")
-        logging.info("*****SQL******\n", res.fetchall())
+        print("*****SQL******\n", res.fetchall())
 
 def update_database(name, ip):
     sq = sqlite3.connect("video_chat.db")
@@ -113,7 +109,7 @@ def update_database(name, ip):
         cur.execute(insert, data_tuple)
         sq.commit()
         res = cur.execute("SELECT * FROM participant")
-        logging.info("*****SQL******\n", res.fetchall())
+        print("*****SQL******\n", res.fetchall())
 
 Thread(target=accept_connections, args=(vid_server_socket, vid_clients,)).start()
 Thread(target=accept_connections, args=(aud_server_socket, aud_clients,)).start()

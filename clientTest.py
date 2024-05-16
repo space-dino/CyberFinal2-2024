@@ -126,17 +126,11 @@ class Client:
             try:
                 readable, _, _ = select.select([self.video_socket], [], [], 1.0)
                 if readable:
-                    frame, self.vid_data, _, cpos, ipos = protocol4.receive_frame(self.video_socket, self.vid_data)
+                    frame, self.vid_data, cpos, ipos = protocol4.receive_frame(self.video_socket, self.vid_data)
                     decompressed_frame = lz4.frame.decompress(frame)
                     nparr = np.frombuffer(decompressed_frame, np.uint8)
                     img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                    if cpos < len(self.labels):
-                        self.draw_GUI_frame(img_np, cpos, "")
-                    else:
-                        label = tk.CTkLabel(self.root)
-                        label.grid(row=0, column=cpos)
-                        self.labels.append(label)
-                        self.draw_GUI_frame(img_np, cpos, "")
+                    self.draw_GUI_frame(img_np, cpos, "")
             except (ConnectionResetError, socket.error) as e:
                 print(f"Error receiving video frame: {e}")
                 self.close_connection()
@@ -157,7 +151,7 @@ class Client:
             try:
                 readable, _, _ = select.select([self.audio_socket], [], [], 1.0)
                 if readable:
-                    frame, self.aud_data, _, _, _ = protocol4.receive_frame(self.audio_socket, self.aud_data)
+                    frame, self.aud_data, _, _ = protocol4.receive_frame(self.audio_socket, self.aud_data)
                     self.out_stream.write(frame)
             except (ConnectionResetError, socket.error) as e:
                 print(f"Error receiving audio data: {e}")
