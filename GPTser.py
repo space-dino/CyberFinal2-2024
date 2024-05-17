@@ -23,7 +23,6 @@ print(socket.gethostname())
 print("Listening video at", vid_socket_address, "audio at", aud_socket_address)
 
 vid_clients = []
-vid_share_indexes = []
 aud_clients = []
 
 
@@ -45,7 +44,6 @@ def accept_connections(soc: socket.socket, lis):
         if lis == vid_clients:
             print(f"GOT VIDEO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
             update_database(cli_index, addr[0])
-            vid_share_indexes.append(con.index)
 
         if lis == aud_clients:
             print(f"GOT AUDIO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
@@ -55,16 +53,13 @@ def accept_connections(soc: socket.socket, lis):
 
 def handle_client(con: connection, client_list):
     while True:
-        print(vid_share_indexes)
         try:
             readable, _, _ = select.select([con.soc], [], [], 1.0)
             if readable:
-                con.frame, con.data, flag, *_ = protocol4.receive_frame(con.soc, con.data)
+                con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
                 if con in aud_clients:
                     broadcast(con, aud_clients)
                 else:
-                    if flag == 1 and ((con.index + 1) not in vid_share_indexes):
-                        vid_share_indexes.append(con.index + 1)
                     broadcast(con, vid_clients)
         except (ConnectionResetError, socket.error) as e:
             print(f"Connection error: {e}")
@@ -85,7 +80,7 @@ def broadcast(con, client_list):
 
 
 def get_index_pos(i):
-    sorted_numbers = sorted(vid_share_indexes)
+    sorted_numbers = sorted([conn.index for conn in vid_clients])
     pos = sorted_numbers.index(i.index)
     return pos
 
@@ -95,8 +90,6 @@ def remove_client(con: connection, lis):
         if i.index == con.index:
             print(f"Removing Connection {i.index}")
             lis.remove(i)
-            if lis == vid_clients:
-                vid_share_indexes.remove(i.index)
             sq = sqlite3.connect("video_chat.db")
             cur = sq.cursor()
             now = datetime.now()

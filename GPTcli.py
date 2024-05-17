@@ -109,6 +109,28 @@ class Client:
             if not ret:
                 continue
             frame = cv2.flip(frame, 1)
+
+            if self.is_sharing_screen:
+                screen = self.capture_screen()
+                screen_height, screen_width, _ = screen.shape
+                frame_height, frame_width, _ = frame.shape
+
+                # Create a new image with dimensions to fit both images
+                new_height = max(screen_height, frame_height)
+                new_width = screen_width + frame_width
+                new_im = Image.new('RGB', (new_width, new_height))
+
+                # Convert cv2 images to PIL images
+                frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                screen_pil = Image.fromarray(cv2.cvtColor(screen, cv2.COLOR_BGR2RGB))
+
+                # Paste the images into the new image
+                new_im.paste(frame_pil, (0, 0))
+                new_im.paste(screen_pil, (frame_width, 0))
+
+                frame = np.array(new_im)
+                frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
             _, encoded_frame = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             compressed_frame = lz4.frame.compress(encoded_frame.tobytes())
             try:
@@ -163,7 +185,7 @@ class Client:
                 self.close_connection()
                 break
 
-    def send_screen(self):
+    """def send_screen(self):
         counter = 0
         start_time = time.time()
         fps = 0
@@ -178,7 +200,7 @@ class Client:
                 fps = counter
                 counter = 0
                 start_time = time.time()
-            self.draw_GUI_frame(frame, self.my_index, f"{fps} fps")
+            self.draw_GUI_frame(frame, self.my_index, f"{fps} fps")"""
 
     def capture_screen(self):
         with mss.mss() as sct:
@@ -191,7 +213,7 @@ class Client:
     def start_screen_sharing(self):
         if not self.is_sharing_screen:
             self.is_sharing_screen = True
-            Thread(target=self.send_screen, daemon=True).start()
+            # Thread(target=self.send_screen, daemon=True).start()
             self.screen_share_button.configure(text="Stop Sharing")
         else:
             self.is_sharing_screen = False
