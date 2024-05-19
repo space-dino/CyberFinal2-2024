@@ -19,9 +19,11 @@ class Client:
         self.video_socket, self.audio_socket, self.host, self.port = self.setup_network()
         self.labels, self.vid_data, self.aud_data, self.my_index, self.up = self.setup_data()
         self.vid = cv2.VideoCapture(0)
-        self.vid.set(3, 320)  # Reduce frame width
-        self.vid.set(4, 240)  # Reduce frame height
+        self.resolution = (320, 240)
+        self.vid.set(3, self.resolution[0])  # Reduce frame width
+        self.vid.set(4, self.resolution[1])  # Reduce frame height
         self.is_sharing_screen = False
+        self.share_window = None
         self.mainloop()
 
     def setup_audio(self):
@@ -109,11 +111,15 @@ class Client:
             if not ret:
                 continue
             frame = cv2.flip(frame, 1)
+            frame = cv2.putText(frame, self.username, (0, 12), cv2.FONT_ITALIC, .5, (0, 0, 0))
 
             if self.is_sharing_screen:
                 screen = self.capture_screen()
+
                 screen_height, screen_width, _ = screen.shape
                 frame_height, frame_width, _ = frame.shape
+                screen = cv2.resize(screen, dsize=(int((screen_width / screen_height) * frame_width * .8), frame_height), interpolation=cv2.INTER_CUBIC)
+                screen_height, screen_width, _ = screen.shape
 
                 # Create a new image with dimensions to fit both images
                 new_height = max(screen_height, frame_height)
@@ -185,23 +191,6 @@ class Client:
                 self.close_connection()
                 break
 
-    """def send_screen(self):
-        counter = 0
-        start_time = time.time()
-        fps = 0
-        while self.up and self.is_sharing_screen:
-            frame = self.capture_screen()
-            _, encoded_frame = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-            compressed_frame = lz4.frame.compress(encoded_frame.tobytes())
-            protocol4.send_frame(self.video_socket, compressed_frame, 1, 0, self.my_index)
-
-            counter += 1
-            if (time.time() - start_time) >= 1:
-                fps = counter
-                counter = 0
-                start_time = time.time()
-            self.draw_GUI_frame(frame, self.my_index, f"{fps} fps")"""
-
     def capture_screen(self):
         with mss.mss() as sct:
             monitor = sct.monitors[1]  # Capture the primary monitor
@@ -210,14 +199,23 @@ class Client:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
             return frame
 
+    def close_screenshare_key(self, event=None):
+        self.start_screen_sharing()
+        self.share_window.destroy()
+
     def start_screen_sharing(self):
         if not self.is_sharing_screen:
             self.is_sharing_screen = True
-            # Thread(target=self.send_screen, daemon=True).start()
-            self.screen_share_button.configure(text="Stop Sharing")
+            self.share_window = tk.CTkToplevel(self.root)
+            self.share_window.title("Enter Your Name")
+            tk.CTkLabel(self.share_window, text="Sharing Screen!:").pack()
+
+            tk.CTkButton(self.share_window, text="Stop Sharing", command=self.start_screen_sharing).pack()
+
         else:
             self.is_sharing_screen = False
             self.screen_share_button.configure(text="Share Screen")
+            self.share_window.destroy()
 
     def start_threads(self):
         Thread(target=self.send_vid, daemon=True).start()
@@ -229,19 +227,23 @@ class Client:
         self.root.mainloop()
 
     def draw_GUI_frame(self, frame, index, fps=None):
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame = Image.fromarray(frame)
-        frame = tk.CTkImage(light_image=frame, size=(400, 300))
-        while index >= len(self.labels):
-            label = tk.CTkLabel(self.root, text="")
-            self.labels.append(label)
-        self.labels[index].grid(row=index, column=0)
-        self.labels[index].configure(image=frame)
-        self.labels[index].image = frame
-        self.index_label.configure(text="client " + str(self.my_index) + " " + str(index))
-        if fps:
-            self.fps_label.configure(text=fps)
-        self.root.update()
+        if self.is_sharing_screen:
+            self.root.withdraw()
+        else:
+            self.root.deiconify()
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame = Image.fromarray(frame)
+            frame = tk.CTkImage(light_image=frame, size=frame.size)
+            while index >= len(self.labels):
+                label = tk.CTkLabel(self.root, text="")
+                self.labels.append(label)
+            self.labels[index].grid(row=index, column=0)
+            self.labels[index].configure(image=frame)
+            self.labels[index].image = frame
+            self.index_label.configure(text="client " + str(self.my_index) + " " + str(index))
+            if fps:
+                self.fps_label.configure(text=fps)
+            self.root.update()
 
 if __name__ == "__main__":
     client = Client()
