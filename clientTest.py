@@ -1,9 +1,11 @@
+import pickle
 import socket
 from tkinter import *
 import customtkinter as tk
 from threading import Thread
 import cv2
-from PIL import Image, ImageTk
+import mss
+from PIL import Image
 import pyaudio
 import time
 import numpy as np
@@ -11,22 +13,30 @@ import lz4.frame
 import protocol4
 import select
 
+
 class Client:
     def __init__(self):
         self.FORMAT, self.CHANNELS, self.RATE, self.A_CHUNK, self.audio, self.in_stream, self.out_stream = self.setup_audio()
-        self.root, self.username, self.window, self.entry, self.index_label, self.fps_label, self.username_label = self.setup_gui()
+        self.root, self.username, self.window, self.entry, self.password_entry, self.index_label, self.fps_label, self.username_label, self.screen_share_button, self.message_box, self.vid_mute_button, self.aud_mute_button = self.setup_gui()
         self.video_socket, self.audio_socket, self.host, self.port = self.setup_network()
         self.labels, self.vid_data, self.aud_data, self.my_index, self.up = self.setup_data()
         self.vid = cv2.VideoCapture(0)
-        self.vid.set(3, 320)  # Reduce frame width
-        self.vid.set(4, 240)  # Reduce frame height
-        self.mainloop()
+        self.resolution = (320, 240)
+        self.vid.set(3, self.resolution[0])  # Reduce frame width
+        self.vid.set(4, self.resolution[1])  # Reduce frame height
+        self.is_sharing_screen = False
+        self.connected = False
+        self.share_window = None
+        self.vid_muted = False
+        self.aud_muted = False
+
+        self.root.mainloop()
 
     def setup_audio(self):
         FORMAT = pyaudio.paInt16
         CHANNELS = 1
-        RATE = int(44100/2)
-        A_CHUNK = int(1024/2)
+        RATE = int(44100 / 2)
+        A_CHUNK = int(1024 / 2)
         audio = pyaudio.PyAudio()
         in_stream = audio.open(format=FORMAT, channels=CHANNELS,
                                rate=RATE, input=True, frames_per_buffer=A_CHUNK)
@@ -40,11 +50,17 @@ class Client:
         root.withdraw()
         username = ""
         window = tk.CTkToplevel(root)
-        window.title("Enter Your Name")
+        window.title("Enter Your Credentials")
         tk.CTkLabel(window, text="Enter your name:").pack()
         entry = tk.CTkEntry(window)
         entry.pack()
+        tk.CTkLabel(window, text="Enter your password:").pack()
+        password_entry = tk.CTkEntry(window, show="*")
+        password_entry.pack()
         tk.CTkButton(window, text="Join Meeting", command=self.submit).pack()
+        tk.CTkButton(window, text="Sign Up", command=self.signup).pack()
+        message_box = tk.CTkLabel(window, text="")
+        message_box.pack()
         tk.CTkButton(root, text="Close", command=self.close_connection).grid(row=0, column=1)
         index_label = tk.CTkLabel(root, text="index")
         index_label.grid(row=1, column=1)
@@ -53,7 +69,16 @@ class Client:
         username_label = tk.CTkLabel(root, text="username")
         username_label.grid(row=3, column=1)
 
-        return root, username, window, entry, index_label, fps_label, username_label
+        frame = tk.CTkFrame(root, border_width=1)
+        screen_share_button = tk.CTkButton(frame, text="Share Screen", command=self.start_screen_sharing)
+        screen_share_button.pack()
+        vid_mute_button = tk.CTkButton(frame, text="Stop Video", command=lambda: self.mute(0))
+        vid_mute_button.pack()
+        aud_mute_button = tk.CTkButton(frame, text="Mute Audio", command=lambda: self.mute(1))
+        aud_mute_button.pack()
+        frame.grid(row=3, column=1)
+
+        return root, username, window, entry, password_entry, index_label, fps_label, username_label, screen_share_button, message_box, vid_mute_button, aud_mute_button
 
     def setup_data(self):
         labels = []
@@ -72,16 +97,41 @@ class Client:
 
         return video_socket, audio_socket, host, port
 
+    def signup(self):
+        username = self.entry.get()
+        password = self.password_entry.get()
+        # Send username and password to the server for signup
+        if not self.connected:
+            self.video_socket.connect((self.host, self.port))
+            self.audio_socket.connect((self.host, self.port + 1))
+            self.connected = True
+        signup_data = {'type': 'signup', 'username': username, 'password': password}
+        self.video_socket.sendall(pickle.dumps(signup_data))
+        response = self.video_socket.recv(1024).decode()
+        if response == 'signup_success':
+            self.username_label.configure(text=username)
+            self.message_box.configure(text="Signup succeeded!\nYou can join a meeting now")
+        else:
+            self.message_box.configure(text="Username already taken")
+
     def submit(self):
         self.username = self.entry.get()
-
-        self.window.destroy()
-        self.root.deiconify()
-        self.username_label.configure(text=self.username)
-        self.video_socket.connect((self.host, self.port))
-        self.audio_socket.connect((self.host, self.port + 1))
-        print("Connected to server")
-        self.start_threads()
+        password = self.password_entry.get()
+        # Send username and password to the server for login
+        if not self.connected:
+            self.video_socket.connect((self.host, self.port))
+            self.audio_socket.connect((self.host, self.port + 1))
+            self.connected = True
+        login_data = {'type': 'login', 'username': self.username, 'password': password}
+        self.video_socket.sendall(pickle.dumps(login_data))
+        response = self.video_socket.recv(1024).decode()
+        if response == 'login_success':
+            self.window.destroy()
+            self.root.deiconify()
+            self.username_label.configure(text=self.username)
+            self.start_threads()
+        else:
+            self.message_box.configure(text="Incorrect password")
 
     def close_connection(self):
         self.in_stream.stop_stream()
@@ -96,15 +146,68 @@ class Client:
         self.audio_socket.close()
         self.root.destroy()
 
+    def mute(self, channel):
+        if channel == 0:  # vid
+            self.vid_muted = not self.vid_muted
+
+            if self.vid_muted:
+                self.vid_mute_button.configure(text="Start Video")
+            else:
+                self.vid_mute_button.configure(text="Stop Video")
+        else:  # aud
+            self.aud_muted = not self.aud_muted
+
+            if self.aud_muted:
+                self.aud_mute_button.configure(text="Start Video")
+            else:
+                self.aud_mute_button.configure(text="Stop Video")
+
     def send_vid(self):
         counter = 0
         start_time = time.time()
         fps = 0
         while self.up:
-            ret, frame = self.vid.read()
-            if not ret:
-                continue
-            frame = cv2.flip(frame, 1)
+            if not self.vid_muted:
+                ret, frame = self.vid.read()
+                if not ret:
+                    continue
+                frame = cv2.flip(frame, 1)
+
+                if self.is_sharing_screen:
+                    screen = self.capture_screen()
+
+                    screen_height, screen_width, _ = screen.shape
+                    frame_height, frame_width, _ = frame.shape
+                    screen = cv2.resize(screen,
+                                        dsize=(int((screen_width / screen_height) * frame_width * .8), frame_height),
+                                        interpolation=cv2.INTER_CUBIC)
+                    screen_height, screen_width, _ = screen.shape
+
+                    # Create a new image with dimensions to fit both images
+                    new_height = max(screen_height, frame_height)
+                    new_width = screen_width + frame_width
+                    new_im = Image.new('RGB', (new_width, new_height))
+
+                    # Convert cv2 images to PIL images
+                    frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                    screen_pil = Image.fromarray(cv2.cvtColor(screen, cv2.COLOR_BGR2RGB))
+
+                    # Paste the images into the new image
+                    new_im.paste(frame_pil, (0, 0))
+                    new_im.paste(screen_pil, (frame_width, 0))
+
+                    frame = np.array(new_im)
+                    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+            else:
+                if self.is_sharing_screen:
+                    frame = self.capture_screen()
+                else:
+                    frame = np.zeros((self.resolution[1], self.resolution[0], 3), dtype=np.uint8)
+
+            frame = cv2.putText(frame, self.username, (0, 12), cv2.FONT_ITALIC, .5, (0, 0, 0), lineType=cv2.LINE_AA, thickness=4)
+            frame = cv2.putText(frame, self.username, (0, 12), cv2.FONT_ITALIC, .5, (255, 255, 255), lineType=cv2.LINE_AA, thickness=2)
+
             _, encoded_frame = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             compressed_frame = lz4.frame.compress(encoded_frame.tobytes())
             try:
@@ -126,17 +229,12 @@ class Client:
             try:
                 readable, _, _ = select.select([self.video_socket], [], [], 1.0)
                 if readable:
-                    frame, self.vid_data, _, cpos, self.my_index = protocol4.receive_frame(self.video_socket, self.vid_data)
+                    frame, self.vid_data, _, cpos, self.my_index = protocol4.receive_frame(self.video_socket,
+                                                                                           self.vid_data)
                     decompressed_frame = lz4.frame.decompress(frame)
                     nparr = np.frombuffer(decompressed_frame, np.uint8)
                     img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                    print(cpos)
-                    """if cpos < len(self.labels):
-                        self.draw_GUI_frame(img_np, cpos, "")
-                    else:
-                        label = tk.CTkLabel(self.root)
-                        label.grid(row=0, column=cpos)
-                        self.labels.append(label)"""
+
                     self.draw_GUI_frame(img_np, cpos, "")
             except (ConnectionResetError, socket.error) as e:
                 print(f"Error receiving video frame: {e}")
@@ -145,13 +243,14 @@ class Client:
 
     def send_aud(self):
         while self.up:
-            try:
-                data = self.in_stream.read(self.A_CHUNK)
-                protocol4.send_frame(self.audio_socket, data, 0, 0, self.my_index)
-            except (BrokenPipeError, ConnectionResetError, socket.error) as e:
-                print(f"Error sending audio data: {e}")
-                self.close_connection()
-                break
+            if not self.aud_muted:
+                try:
+                    data = self.in_stream.read(self.A_CHUNK)
+                    protocol4.send_frame(self.audio_socket, data, 0, 0, self.my_index)
+                except (BrokenPipeError, ConnectionResetError, socket.error) as e:
+                    print(f"Error sending audio data: {e}")
+                    self.close_connection()
+                    break
 
     def receive_aud(self):
         while self.up:
@@ -165,46 +264,57 @@ class Client:
                 self.close_connection()
                 break
 
+    def capture_screen(self):
+        with mss.mss() as sct:
+            monitor = sct.monitors[1]  # Capture the primary monitor
+            img = sct.grab(monitor)
+            frame = np.array(img)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+            return frame
+
+    def close_screenshare_key(self, event=None):
+        self.start_screen_sharing()
+        self.share_window.destroy()
+
+    def start_screen_sharing(self):
+        if not self.is_sharing_screen:
+            self.is_sharing_screen = True
+            self.share_window = tk.CTkToplevel(self.root)
+            self.share_window.title("Enter Your Name")
+            tk.CTkLabel(self.share_window, text="Sharing Screen!").pack()
+
+            tk.CTkButton(self.share_window, text="Stop Sharing", command=self.start_screen_sharing).pack()
+
+        else:
+            self.is_sharing_screen = False
+            self.screen_share_button.configure(text="Share Screen")
+            self.share_window.destroy()
+
     def start_threads(self):
         Thread(target=self.send_vid, daemon=True).start()
         Thread(target=self.receive_vid, daemon=True).start()
         Thread(target=self.send_aud, daemon=True).start()
         Thread(target=self.receive_aud, daemon=True).start()
 
-    def mainloop(self):
-        self.root.mainloop()
-
-    def draw_GUI_frame(self, frame, cpos, fps_text):
-        """cv2.putText(frame, fps_text, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
-        cv2.putText(frame, f"{self.username}", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
-        img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        img_pil = Image.fromarray(img)
-        imgtk = tk.CTkImage(light_image=img_pil, size=(400, 300))
-        print(cpos)
-        if cpos < len(self.labels):
-            self.labels[cpos].configure(image=imgtk, text="")
-            self.labels[cpos].image = imgtk
-        else:
-            label = tk.CTkLabel(self.root)
-            label.grid(row=cpos, column=0)
-            self.labels.append(label)
-            self.labels[cpos].configure(image=imgtk)
-            self.labels[cpos].image = imgtk"""
-
     def draw_GUI_frame(self, frame, index, fps=None):
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame = Image.fromarray(frame)
-        frame = tk.CTkImage(light_image=frame, size=(400, 300))
-        while index >= len(self.labels):
-            label = tk.CTkLabel(self.root, text="")
-            self.labels.append(label)
-        self.labels[index].grid(row=index, column=0)
-        self.labels[index].configure(image=frame)
-        self.labels[index].image = frame
-        self.index_label.configure(text="client " + str(self.my_index) + " " + str(index))
-        if fps:
-            self.fps_label.configure(text=fps)
-        self.root.update()
+        if self.is_sharing_screen:
+            self.root.withdraw()
+        else:
+            self.root.deiconify()
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame = Image.fromarray(frame)
+            frame = tk.CTkImage(light_image=frame, size=frame.size)
+            while index >= len(self.labels):
+                label = tk.CTkLabel(self.root, text="")
+                self.labels.append(label)
+            self.labels[index].grid(row=index, column=0)
+            self.labels[index].configure(image=frame)
+            self.labels[index].image = frame
+            self.index_label.configure(text="client " + str(self.my_index) + " " + str(index))
+            if fps:
+                self.fps_label.configure(text=fps)
+            self.root.update()
+
 
 if __name__ == "__main__":
     client = Client()

@@ -12,6 +12,7 @@ import lz4.frame
 import protocol4
 import select
 
+
 class Client:
     def __init__(self):
         self.FORMAT, self.CHANNELS, self.RATE, self.A_CHUNK, self.audio, self.in_stream, self.out_stream = self.setup_audio()
@@ -24,13 +25,13 @@ class Client:
         self.vid.set(4, self.resolution[1])  # Reduce frame height
         self.is_sharing_screen = False
         self.share_window = None
-        self.mainloop()
+        self.root.mainloop()
 
     def setup_audio(self):
         FORMAT = pyaudio.paInt16
         CHANNELS = 1
-        RATE = int(44100/2)
-        A_CHUNK = int(1024/2)
+        RATE = int(44100 / 2)
+        A_CHUNK = int(1024 / 2)
         audio = pyaudio.PyAudio()
         in_stream = audio.open(format=FORMAT, channels=CHANNELS,
                                rate=RATE, input=True, frames_per_buffer=A_CHUNK)
@@ -118,7 +119,9 @@ class Client:
 
                 screen_height, screen_width, _ = screen.shape
                 frame_height, frame_width, _ = frame.shape
-                screen = cv2.resize(screen, dsize=(int((screen_width / screen_height) * frame_width * .8), frame_height), interpolation=cv2.INTER_CUBIC)
+                screen = cv2.resize(screen,
+                                    dsize=(int((screen_width / screen_height) * frame_width * .8), frame_height),
+                                    interpolation=cv2.INTER_CUBIC)
                 screen_height, screen_width, _ = screen.shape
 
                 # Create a new image with dimensions to fit both images
@@ -158,7 +161,8 @@ class Client:
             try:
                 readable, _, _ = select.select([self.video_socket], [], [], 1.0)
                 if readable:
-                    frame, self.vid_data, _, cpos, self.my_index = protocol4.receive_frame(self.video_socket, self.vid_data)
+                    frame, self.vid_data, _, cpos, self.my_index = protocol4.receive_frame(self.video_socket,
+                                                                                           self.vid_data)
                     decompressed_frame = lz4.frame.decompress(frame)
                     nparr = np.frombuffer(decompressed_frame, np.uint8)
                     img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -208,7 +212,7 @@ class Client:
             self.is_sharing_screen = True
             self.share_window = tk.CTkToplevel(self.root)
             self.share_window.title("Enter Your Name")
-            tk.CTkLabel(self.share_window, text="Sharing Screen!:").pack()
+            tk.CTkLabel(self.share_window, text="Sharing Screen!").pack()
 
             tk.CTkButton(self.share_window, text="Stop Sharing", command=self.start_screen_sharing).pack()
 
@@ -222,9 +226,6 @@ class Client:
         Thread(target=self.receive_vid, daemon=True).start()
         Thread(target=self.send_aud, daemon=True).start()
         Thread(target=self.receive_aud, daemon=True).start()
-
-    def mainloop(self):
-        self.root.mainloop()
 
     def draw_GUI_frame(self, frame, index, fps=None):
         if self.is_sharing_screen:
@@ -244,6 +245,7 @@ class Client:
             if fps:
                 self.fps_label.configure(text=fps)
             self.root.update()
+
 
 if __name__ == "__main__":
     client = Client()
