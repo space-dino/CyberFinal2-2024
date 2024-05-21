@@ -35,8 +35,8 @@ class Client:
     def setup_audio(self):
         FORMAT = pyaudio.paInt16
         CHANNELS = 1
-        RATE = int(44100 / 2)
-        A_CHUNK = int(1024 / 2)
+        RATE = int(44100 / 4)
+        A_CHUNK = int(1024 / 4)
         audio = pyaudio.PyAudio()
         in_stream = audio.open(format=FORMAT, channels=CHANNELS,
                                rate=RATE, input=True, frames_per_buffer=A_CHUNK)

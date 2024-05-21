@@ -90,12 +90,17 @@ def handle_client(con: connection, client_list):
                         if res == "True":
                             valid_addresses.append(con.index)
                             con.soc.sendall("login_success".encode())
+                            readable = False
                         elif res == "Wrong Username":
                             con.soc.sendall("login_failU".encode())
                         elif res == "Wrong Password":
                             con.soc.sendall("login_failP".encode())
                 else:
                     if con.index in valid_addresses:
+                        for i in login_clients:
+                            if i.index == con.index:
+                                i.soc.close()
+
                         con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
                         if con in aud_clients:
                             broadcast(con, aud_clients)
