@@ -114,7 +114,6 @@ class Client:
         self.username = self.entry.get()
         password = self.password_entry.get()
         # Send username and password to the server for login
-        print(type(password), password)
         protocol4.send_credentials(self.login_socket, False, self.username, password)
         response = self.login_socket.recv(1024).decode()
         if response == 'login_success':

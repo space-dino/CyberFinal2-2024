@@ -66,16 +66,16 @@ def hash_password(password):
 
 
 def check_password(stored_password, plain_password):
-    print(plain_password, stored_password)
-
     return bcrypt.checkpw(plain_password.encode('utf-8'), stored_password.encode('utf-8'))
 
 
 def handle_client(con: connection, client_list):
+    login_finished = False
+
     while True:
         try:
             readable, _, _ = select.select([con.soc], [], [], 1.0)
-            if readable:
+            if readable and not login_finished:
                 if client_list == login_clients:
                     signup, username, password = protocol4.recv_credentials(con.soc)
                     print(signup, username, password)
@@ -86,21 +86,17 @@ def handle_client(con: connection, client_list):
                             con.soc.sendall("signup_fail".encode())
                     else:
                         res = handle_login(username, password)
-                        print(res)
                         if res == "True":
                             valid_addresses.append(con.index)
                             con.soc.sendall("login_success".encode())
-                            readable = False
+                            login_finished = False
+                            con.soc.close()
                         elif res == "Wrong Username":
                             con.soc.sendall("login_failU".encode())
                         elif res == "Wrong Password":
                             con.soc.sendall("login_failP".encode())
                 else:
                     if con.index in valid_addresses:
-                        for i in login_clients:
-                            if i.index == con.index:
-                                i.soc.close()
-
                         con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
                         if con in aud_clients:
                             broadcast(con, aud_clients)
@@ -108,6 +104,10 @@ def handle_client(con: connection, client_list):
                             broadcast(con, vid_clients)
         except (ConnectionResetError, socket.error) as e:
             print(f"Connection error: {e}")
+            remove_client(con, client_list)
+            break
+        except ValueError as e:
+            print(f"Login removed")
             remove_client(con, client_list)
             break
 

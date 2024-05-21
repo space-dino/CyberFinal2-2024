@@ -21,7 +21,7 @@ def send_frame(soc: socket, frame, flag: int, index: int, my_index: int):
 
     index - 4 bytes unsigned int
     my_index - 4 bytes unsigned int
-    flag - 4 bytes unsigned int (0: video, 1: audio, 2: chat) - Flag used for screenshare
+    flag - 4 bytes unsigned int (0: video, 1: audio, 2: chat)
     data_length - 8 bytes unsigned long long
     data - data_length bytes data
 
@@ -48,7 +48,11 @@ def receive_frame(soc: socket, data: bytes):
 
 
 def send_credentials(soc: socket, signup: bool, username: str, password: str):
-    message = str(int(signup)) + str(len(username)).zfill(4) + username + str(len(password)).zfill(4) + password
+    sign_char = 'l'
+    if signup:
+        sign_char = 's'
+    message = sign_char + str(len(username)).zfill(4) + username + str(len(password)).zfill(4) + password
+    print(message)
 
     try:
         soc.sendall(message.encode())
@@ -58,12 +62,15 @@ def send_credentials(soc: socket, signup: bool, username: str, password: str):
 
 def recv_credentials(soc: socket):
     signup = soc.recv(1)
+    print(signup.decode())
     ul = int(soc.recv(4))
     username = soc.recv(ul)
     pl = int(soc.recv(4))
     password = soc.recv(pl)
 
-    if signup == b'0':
+    print("ul:", ul, "username:", username)
+
+    if signup.decode() == 'l':
         signup = False
     else:
         signup = True
