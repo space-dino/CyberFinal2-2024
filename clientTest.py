@@ -17,14 +17,15 @@ class Client:
     def __init__(self):
         self.FORMAT, self.CHANNELS, self.RATE, self.A_CHUNK, self.audio, self.in_stream, self.out_stream = self.setup_audio()
         self.root, self.username, self.window, self.entry, self.password_entry, self.index_label, self.fps_label, self.username_label, self.screen_share_button, self.message_box, self.vid_mute_button, self.aud_mute_button = self.setup_gui()
-        self.video_socket, self.audio_socket, self.host, self.port = self.setup_network()
+        self.login_socket, self.video_socket, self.audio_socket, self.host, self.port = self.setup_network()
         self.labels, self.vid_data, self.aud_data, self.my_index, self.up = self.setup_data()
         self.vid = cv2.VideoCapture(0)
         self.resolution = (320, 240)
         self.vid.set(3, self.resolution[0])  # Reduce frame width
         self.vid.set(4, self.resolution[1])  # Reduce frame height
         self.is_sharing_screen = False
-        self.connected = False
+        self.login_socket.connect((self.host, self.port + 2))
+        print("Connected to server")
         self.share_window = None
         self.vid_muted = False
         self.aud_muted = False
@@ -89,23 +90,20 @@ class Client:
         return labels, vid_data, aud_data, my_index, up
 
     def setup_network(self):
+        login_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         video_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         audio_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         host = '127.0.0.1'
         port = 9997
 
-        return video_socket, audio_socket, host, port
+        return login_socket, video_socket, audio_socket, host, port
 
     def signup(self):
         username = self.entry.get()
         password = self.password_entry.get()
         # Send username and password to the server for signup
-        if not self.connected:
-            self.video_socket.connect((self.host, self.port))
-            self.audio_socket.connect((self.host, self.port + 1))
-            self.connected = True
-        protocol4.send_credentials(self.video_socket, True, username, password)
-        response = self.video_socket.recv(1024).decode()
+        protocol4.send_credentials(self.login_socket, True, username, password)
+        response = self.login_socket.recv(1024).decode()
         if response == 'signup_success':
             self.username_label.configure(text=username)
             self.message_box.configure(text="Signup succeeded!\nYou can join a meeting now")
@@ -116,14 +114,13 @@ class Client:
         self.username = self.entry.get()
         password = self.password_entry.get()
         # Send username and password to the server for login
-        if not self.connected:
+        print(type(password), password)
+        protocol4.send_credentials(self.login_socket, False, self.username, password)
+        response = self.login_socket.recv(1024).decode()
+        if response == 'login_success':
+            self.login_socket.close()
             self.video_socket.connect((self.host, self.port))
             self.audio_socket.connect((self.host, self.port + 1))
-            self.connected = True
-        print(type(password), password)
-        protocol4.send_credentials(self.video_socket, False, self.username, password)
-        response = self.video_socket.recv(1024).decode()
-        if response == 'login_success':
             self.window.destroy()
             self.root.deiconify()
             self.username_label.configure(text=self.username)
@@ -273,10 +270,6 @@ class Client:
             frame = np.array(img)
             frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
             return frame
-
-    def close_screenshare_key(self, event=None):
-        self.start_screen_sharing()
-        self.share_window.destroy()
 
     def start_screen_sharing(self):
         if not self.is_sharing_screen:

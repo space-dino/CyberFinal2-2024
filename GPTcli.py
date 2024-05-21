@@ -203,10 +203,6 @@ class Client:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
             return frame
 
-    def close_screenshare_key(self, event=None):
-        self.start_screen_sharing()
-        self.share_window.destroy()
-
     def start_screen_sharing(self):
         if not self.is_sharing_screen:
             self.is_sharing_screen = True

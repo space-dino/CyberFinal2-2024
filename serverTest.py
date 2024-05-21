@@ -3,29 +3,33 @@ from threading import Thread
 import protocol4
 import sqlite3
 import select
-import hashlib
-import os
 import bcrypt
 
 vid_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 aud_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+login_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 host = '0.0.0.0'
 port = 9997
 vid_socket_address = (host, port)
 aud_socket_address = (host, port + 1)
+login_socket_address = (host, port + 2)
 
 vid_server_socket.bind(vid_socket_address)
 aud_server_socket.bind(aud_socket_address)
+login_server_socket.bind(login_socket_address)
 
 vid_server_socket.listen()
 aud_server_socket.listen()
+login_server_socket.listen()
 
 print(socket.gethostname())
-print("Listening video at", vid_socket_address, "audio at", aud_socket_address)
+print("Listening video at", vid_socket_address, "audio at", aud_socket_address, "login at", login_socket_address)
 
 vid_clients = []
 aud_clients = []
+login_clients = []
+valid_addresses = []
 
 
 class connection:
@@ -34,7 +38,6 @@ class connection:
         self.frame = b''
         self.data = b''
         self.index = index
-        self.authenticated = False
 
 
 def accept_connections(soc: socket.socket, lis):
@@ -43,6 +46,9 @@ def accept_connections(soc: socket.socket, lis):
         cli_index = int(str(addr[0]).replace(".", ""))
         con = connection(client_socket, cli_index)
         lis.append(con)
+
+        if lis == login_clients:
+            print(f"GOT LOGIN CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
 
         if lis == vid_clients:
             print(f"GOT VIDEO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
@@ -70,7 +76,7 @@ def handle_client(con: connection, client_list):
         try:
             readable, _, _ = select.select([con.soc], [], [], 1.0)
             if readable:
-                if not con.authenticated:
+                if client_list == login_clients:
                     signup, username, password = protocol4.recv_credentials(con.soc)
                     print(signup, username, password)
                     if signup:
@@ -82,18 +88,19 @@ def handle_client(con: connection, client_list):
                         res = handle_login(username, password)
                         print(res)
                         if res == "True":
-                            con.authenticated = True
+                            valid_addresses.append(con.index)
                             con.soc.sendall("login_success".encode())
                         elif res == "Wrong Username":
                             con.soc.sendall("login_failU".encode())
                         elif res == "Wrong Password":
                             con.soc.sendall("login_failP".encode())
                 else:
-                    con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
-                    if con in aud_clients:
-                        broadcast(con, aud_clients)
-                    else:
-                        broadcast(con, vid_clients)
+                    if con.index in valid_addresses:
+                        con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
+                        if con in aud_clients:
+                            broadcast(con, aud_clients)
+                        else:
+                            broadcast(con, vid_clients)
         except (ConnectionResetError, socket.error) as e:
             print(f"Connection error: {e}")
             remove_client(con, client_list)
@@ -189,3 +196,4 @@ def create_users_table():
 create_users_table()
 Thread(target=accept_connections, args=(vid_server_socket, vid_clients,)).start()
 Thread(target=accept_connections, args=(aud_server_socket, aud_clients,)).start()
+Thread(target=accept_connections, args=(login_server_socket, login_clients,)).start()
