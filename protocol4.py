@@ -8,7 +8,8 @@ index_size = struct.calcsize("I")  # unsigned Int = 4 bytes
 
 def send_frame(soc: socket, frame, flag: int, index: int, my_index: int):
     data = pickle.dumps(frame)
-    message = struct.pack("I", index) + struct.pack("I", my_index) + struct.pack("I", flag) + struct.pack("Q", len(data)) + data
+    message = struct.pack("I", index) + struct.pack("I", my_index) + struct.pack("I", flag) + struct.pack("Q",
+                                                                                                          len(data)) + data
 
     try:
         soc.sendall(message)
@@ -44,6 +45,30 @@ def receive_frame(soc: socket, data: bytes):
     frame = pickle.loads(frame_data)
 
     return frame, data, flag, index, my_index
+
+
+def send_credentials(soc: socket, signup: bool, username: str, password: str):
+    message = str(int(signup)) + str(len(username)).zfill(4) + username + str(len(password)).zfill(4) + password
+
+    try:
+        soc.sendall(message.encode())
+    except TypeError:
+        print("connection closed")
+
+
+def recv_credentials(soc: socket):
+    signup = soc.recv(1)
+    ul = int(soc.recv(4))
+    username = soc.recv(ul)
+    pl = int(soc.recv(4))
+    password = soc.recv(pl)
+
+    if signup == b'0':
+        signup = False
+    else:
+        signup = True
+
+    return signup, username.decode(), password.decode()
 
 
 def receive_parameter(soc: socket, data, size):

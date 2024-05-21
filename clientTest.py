@@ -1,4 +1,3 @@
-import pickle
 import socket
 from tkinter import *
 import customtkinter as tk
@@ -105,8 +104,7 @@ class Client:
             self.video_socket.connect((self.host, self.port))
             self.audio_socket.connect((self.host, self.port + 1))
             self.connected = True
-        signup_data = {'type': 'signup', 'username': username, 'password': password}
-        self.video_socket.sendall(pickle.dumps(signup_data))
+        protocol4.send_credentials(self.video_socket, True, username, password)
         response = self.video_socket.recv(1024).decode()
         if response == 'signup_success':
             self.username_label.configure(text=username)
@@ -122,15 +120,17 @@ class Client:
             self.video_socket.connect((self.host, self.port))
             self.audio_socket.connect((self.host, self.port + 1))
             self.connected = True
-        login_data = {'type': 'login', 'username': self.username, 'password': password}
-        self.video_socket.sendall(pickle.dumps(login_data))
+        print(type(password), password)
+        protocol4.send_credentials(self.video_socket, False, self.username, password)
         response = self.video_socket.recv(1024).decode()
         if response == 'login_success':
             self.window.destroy()
             self.root.deiconify()
             self.username_label.configure(text=self.username)
             self.start_threads()
-        else:
+        elif response == 'login_failU':
+            self.message_box.configure(text="Incorrect username")
+        elif response == 'login_failP':
             self.message_box.configure(text="Incorrect password")
 
     def close_connection(self):
@@ -158,9 +158,9 @@ class Client:
             self.aud_muted = not self.aud_muted
 
             if self.aud_muted:
-                self.aud_mute_button.configure(text="Start Video")
+                self.aud_mute_button.configure(text="Unmute Audio")
             else:
-                self.aud_mute_button.configure(text="Stop Video")
+                self.aud_mute_button.configure(text="Mute Audio")
 
     def send_vid(self):
         counter = 0
@@ -205,8 +205,10 @@ class Client:
                 else:
                     frame = np.zeros((self.resolution[1], self.resolution[0], 3), dtype=np.uint8)
 
-            frame = cv2.putText(frame, self.username, (0, 12), cv2.FONT_ITALIC, .5, (0, 0, 0), lineType=cv2.LINE_AA, thickness=4)
-            frame = cv2.putText(frame, self.username, (0, 12), cv2.FONT_ITALIC, .5, (255, 255, 255), lineType=cv2.LINE_AA, thickness=2)
+            frame = cv2.putText(frame, self.username, (0, 12), cv2.FONT_ITALIC, .5, (0, 0, 0), lineType=cv2.LINE_AA,
+                                thickness=4)
+            frame = cv2.putText(frame, self.username, (0, 12), cv2.FONT_ITALIC, .5, (255, 255, 255),
+                                lineType=cv2.LINE_AA, thickness=2)
 
             _, encoded_frame = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             compressed_frame = lz4.frame.compress(encoded_frame.tobytes())
