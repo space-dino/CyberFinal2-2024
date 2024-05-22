@@ -208,7 +208,7 @@ class Client:
                                 lineType=cv2.LINE_AA, thickness=2)
 
             _, encoded_frame = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-            compressed_frame = lz4.frame.compress(encoded_frame.tobytes(), compression_level=lz4.frame.COMPRESSIONLEVEL_MINHC)
+            compressed_frame = lz4.frame.compress(encoded_frame.tobytes(), compression_level=lz4.frame.COMPRESSIONLEVEL_MAX)
             try:
                 protocol4.send_frame(self.video_socket, compressed_frame, 0, 0, self.my_index)
             except (BrokenPipeError, ConnectionResetError, socket.error) as e:
