@@ -11,6 +11,7 @@ import numpy as np
 import lz4.frame
 import protocol4
 import select
+import zlib
 
 
 class Client:
@@ -207,7 +208,7 @@ class Client:
                                 lineType=cv2.LINE_AA, thickness=2)
 
             _, encoded_frame = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-            compressed_frame = lz4.frame.compress(encoded_frame.tobytes())
+            compressed_frame = lz4.frame.compress(encoded_frame.tobytes(), compression_level=lz4.frame.COMPRESSIONLEVEL_MINHC)
             try:
                 protocol4.send_frame(self.video_socket, compressed_frame, 0, 0, self.my_index)
             except (BrokenPipeError, ConnectionResetError, socket.error) as e:
@@ -241,9 +242,11 @@ class Client:
 
     def send_aud(self):
         while self.up:
-            if not self.aud_muted:
+            if self.aud_muted:
+                time.sleep(0.1)
+            else:
                 try:
-                    data = self.in_stream.read(self.A_CHUNK)
+                    data = zlib.compress(self.in_stream.read(self.A_CHUNK))
                     protocol4.send_frame(self.audio_socket, data, 0, 0, self.my_index)
                 except (BrokenPipeError, ConnectionResetError, socket.error) as e:
                     print(f"Error sending audio data: {e}")
@@ -256,7 +259,7 @@ class Client:
                 readable, _, _ = select.select([self.audio_socket], [], [], 1.0)
                 if readable:
                     frame, self.aud_data, *_ = protocol4.receive_frame(self.audio_socket, self.aud_data)
-                    self.out_stream.write(frame)
+                    self.out_stream.write(zlib.decompress(frame))
             except (ConnectionResetError, socket.error) as e:
                 print(f"Error receiving audio data: {e}")
                 self.close_connection()
