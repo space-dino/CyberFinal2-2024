@@ -207,7 +207,9 @@ class Client:
             frame = cv2.putText(frame, self.username, (0, 12), cv2.FONT_ITALIC, .5, (255, 255, 255),
                                 lineType=cv2.LINE_AA, thickness=2)
 
-            _, encoded_frame = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            #_, encoded_frame = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            encoded_frame = b''
+            Image.save(encoded_frame, fomrat="JPEG")
             compressed_frame = lz4.frame.compress(encoded_frame.tobytes(), compression_level=lz4.frame.COMPRESSIONLEVEL_MAX)
             try:
                 protocol4.send_frame(self.video_socket, compressed_frame, 0, 0, self.my_index)
