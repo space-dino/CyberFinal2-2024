@@ -3,11 +3,10 @@ from threading import Thread
 import protocol4
 import sqlite3
 import select
-from PIL import Image
 import bcrypt
 
-vid_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-aud_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+vid_server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+aud_server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 login_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 host = '0.0.0.0'
@@ -20,9 +19,11 @@ vid_server_socket.bind(vid_socket_address)
 aud_server_socket.bind(aud_socket_address)
 login_server_socket.bind(login_socket_address)
 
-vid_server_socket.listen()
-aud_server_socket.listen()
 login_server_socket.listen()
+
+"""vid_server_socket.listen()
+aud_server_socket.listen()
+login_server_socket.listen()"""
 
 print(socket.gethostname())
 print("Listening video at", vid_socket_address, "audio at", aud_socket_address, "login at", login_socket_address)
@@ -41,11 +42,24 @@ class connection:
         self.index = index
 
 
-def accept_connections(soc: socket.socket, lis):
+def accept_connections_tcp(soc: socket.socket, lis):
     while True:
         client_socket, addr = soc.accept()
         cli_index = int(str(addr[0]).replace(".", ""))
         con = connection(client_socket, cli_index)
+        lis.append(con)
+
+        if lis == login_clients:
+            print(f"GOT LOGIN CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
+
+        Thread(target=handle_client, args=(con, lis,)).start()
+
+
+def accept_connections(soc: socket.socket, lis):
+    while True:
+        data, addr = soc.recv(1024)  # Receive data from a client
+        cli_index = int(str(addr[0]).replace(".", ""))
+        con = connection(addr, cli_index)
         lis.append(con)
 
         if lis == login_clients:
@@ -82,20 +96,20 @@ def handle_client(con: connection, client_list):
                     print(signup, username, password)
                     if signup:
                         if handle_signup(username, password):
-                            con.soc.sendall("signup_success".encode())
+                            con.soc.send("signup_success".encode())
                         else:
-                            con.soc.sendall("signup_fail".encode())
+                            con.soc.send("signup_fail".encode())
                     else:
                         res = handle_login(username, password)
                         if res == "True":
                             valid_addresses.append(con.index)
-                            con.soc.sendall("login_success".encode())
+                            con.soc.send("login_success".encode())
                             login_finished = False
                             con.soc.close()
                         elif res == "Wrong Username":
-                            con.soc.sendall("login_failU".encode())
+                            con.soc.send("login_failU".encode())
                         elif res == "Wrong Password":
-                            con.soc.sendall("login_failP".encode())
+                            con.soc.send("login_failP".encode())
                 else:
                     if con.index in valid_addresses:
                         con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
@@ -157,7 +171,7 @@ def handle_login(username, password):
     return "Wrong Password"
 
 
-"""def broadcast(con, client_list):
+def broadcast(con, client_list):
     for client in client_list:
         if client != con:
             ipos = get_index_pos(client)
@@ -166,40 +180,8 @@ def handle_login(username, password):
                 protocol4.send_frame(client.soc, con.frame, 0, cpos, ipos)
             except (BrokenPipeError, ConnectionResetError, socket.error) as e:
                 print(f"Error broadcasting frame: {e}")
-                remove_client(client, client_list)"""
+                remove_client(client, client_list)
 
-
-def broadcast(con, client_list):  # inverse broadcast --- for every con, send to con every other clients' image
-    imm_arr = []
-
-    for client in client_list:
-        if client != con:
-            ipos = get_index_pos(con)
-            cpos = get_index_pos(client)
-            try:
-                imm_arr.append(client.frame)
-            except (BrokenPipeError, ConnectionResetError, socket.error) as e:
-                print(f"Error broadcasting frame: {e}")
-                remove_client(con, client_list)
-
-    comb_frame = combine_vertically(imm_arr)
-    protocol4.send_frame(con.soc, comb_frame, 0, cpos, 0)
-
-def combine_vertically(images):
-    # Determine the maximum width and total height of the combined image
-    max_width = max(img.width for img in images)
-    total_height = sum(img.height for img in images)
-
-    # Create a new image with white background (you can change this to any color)
-    combined_image = Image.new('RGB', (max_width, total_height), color='white')
-
-    # Paste each image into the combined image
-    y_offset = 0
-    for img in images:
-        combined_image.paste(img, (0, y_offset))
-        y_offset += img.height
-
-    return combined_image
 
 def get_index_pos(i):
     sorted_numbers = sorted([conn.index for conn in vid_clients])
@@ -234,4 +216,4 @@ def create_users_table():
 create_users_table()
 Thread(target=accept_connections, args=(vid_server_socket, vid_clients,)).start()
 Thread(target=accept_connections, args=(aud_server_socket, aud_clients,)).start()
-Thread(target=accept_connections, args=(login_server_socket, login_clients,)).start()
+Thread(target=accept_connections_tcp, args=(login_server_socket, login_clients,)).start()

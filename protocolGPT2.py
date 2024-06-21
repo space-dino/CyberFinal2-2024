@@ -12,7 +12,7 @@ def send_frame(soc: socket, frame, flag: int, index: int, my_index: int):
                                                                                                           len(data)) + data
 
     try:
-        soc.sendall(message)
+        soc.sendto(message)
     except TypeError:
         print("connection closed")
 
@@ -55,7 +55,7 @@ def send_credentials(soc: socket, signup: bool, username: str, password: str):
     print(message)
 
     try:
-        soc.sendall(message.encode())
+        soc.send(message.encode())
     except TypeError:
         print("connection closed")
 
@@ -80,7 +80,7 @@ def recv_credentials(soc: socket):
 
 def receive_parameter(soc: socket, data, size):
     while len(data) < size:
-        data += soc.recv(4 * 4096)
+        data += soc.recvfrom(4 * 4096)
 
     parameter = data[:size]
     data = data[size:]

@@ -92,8 +92,8 @@ class Client:
 
     def setup_network(self):
         login_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        video_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        audio_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         host = '127.0.0.1'
         port = 9997
 
@@ -103,6 +103,7 @@ class Client:
         username = self.entry.get()
         password = self.password_entry.get()
         # Send username and password to the server for signup
+        self.login_socket.send(".")
         protocol4.send_credentials(self.login_socket, True, username, password)
         response = self.login_socket.recv(1024).decode()
         if response == 'signup_success':
