@@ -94,6 +94,13 @@ class Client:
         login_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+        video_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        video_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
+        audio_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        audio_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
         host = '127.0.0.1'
         port = 9997
 
@@ -103,7 +110,6 @@ class Client:
         username = self.entry.get()
         password = self.password_entry.get()
         # Send username and password to the server for signup
-        self.login_socket.send(".")
         protocol4.send_credentials(self.login_socket, True, username, password)
         response = self.login_socket.recv(1024).decode()
         if response == 'signup_success':
@@ -164,6 +170,7 @@ class Client:
         counter = 0
         start_time = time.time()
         fps = 0
+
         while self.up:
             if not self.vid_muted:
                 ret, frame = self.vid.read()
@@ -227,15 +234,15 @@ class Client:
     def receive_vid(self):
         while self.up:
             try:
-                readable, _, _ = select.select([self.video_socket], [], [], 1.0)
-                if readable:
-                    frame, self.vid_data, _, cpos, self.my_index = protocol4.receive_frame(self.video_socket,
-                                                                                           self.vid_data)
-                    decompressed_frame = lz4.frame.decompress(frame)
-                    nparr = np.frombuffer(decompressed_frame, np.uint8)
-                    img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                """readable, _, _ = select.select([self.video_socket], [], [], 1.0)
+                if readable:"""
+                frame, self.vid_data, _, cpos, self.my_index = protocol4.receive_frame(self.video_socket,
+                                                                                       self.vid_data)
+                decompressed_frame = lz4.frame.decompress(frame)
+                nparr = np.frombuffer(decompressed_frame, np.uint8)
+                img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-                    self.draw_GUI_frame(img_np, cpos, "")
+                self.draw_GUI_frame(img_np, cpos, "")
             except (ConnectionResetError, socket.error) as e:
                 print(f"Error receiving video frame: {e}")
                 self.close_connection()
@@ -257,10 +264,10 @@ class Client:
     def receive_aud(self):
         while self.up:
             try:
-                readable, _, _ = select.select([self.audio_socket], [], [], 1.0)
-                if readable:
-                    frame, self.aud_data, *_ = protocol4.receive_frame(self.audio_socket, self.aud_data)
-                    self.out_stream.write(zlib.decompress(frame))
+                """readable, _, _ = select.select([self.audio_socket], [], [], 1.0)
+                if readable:"""
+                frame, self.aud_data, *_ = protocol4.receive_frame(self.audio_socket, self.aud_data)
+                self.out_stream.write(zlib.decompress(frame))
             except (ConnectionResetError, socket.error) as e:
                 print(f"Error receiving audio data: {e}")
                 self.close_connection()

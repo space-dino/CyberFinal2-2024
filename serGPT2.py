@@ -21,10 +21,6 @@ login_server_socket.bind(login_socket_address)
 
 login_server_socket.listen()
 
-"""vid_server_socket.listen()
-aud_server_socket.listen()
-login_server_socket.listen()"""
-
 print(socket.gethostname())
 print("Listening video at", vid_socket_address, "audio at", aud_socket_address, "login at", login_socket_address)
 
@@ -32,6 +28,7 @@ vid_clients = []
 aud_clients = []
 login_clients = []
 valid_addresses = []
+
 
 
 class connection:
@@ -53,17 +50,16 @@ def accept_connections_tcp(soc: socket.socket, lis):
             print(f"GOT LOGIN CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
 
         Thread(target=handle_client, args=(con, lis,)).start()
+        Thread(target=handle_client, args=(con, aud_clients,)).start()
+        Thread(target=handle_client, args=(con, vid_clients,)).start()
 
 
-def accept_connections(soc: socket.socket, lis):
+def accept_connections_udp(soc: socket.socket, lis):
     while True:
-        data, addr = soc.recv(1024)  # Receive data from a client
+        data, addr = soc.recvfrom(4096)
         cli_index = int(str(addr[0]).replace(".", ""))
-        con = connection(addr, cli_index)
+        con = connection(soc, cli_index)
         lis.append(con)
-
-        if lis == login_clients:
-            print(f"GOT LOGIN CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
 
         if lis == vid_clients:
             print(f"GOT VIDEO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
@@ -72,6 +68,7 @@ def accept_connections(soc: socket.socket, lis):
             print(f"GOT AUDIO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
 
         Thread(target=handle_client, args=(con, lis,)).start()
+
 
 
 def hash_password(password):
@@ -85,38 +82,36 @@ def check_password(stored_password, plain_password):
 
 
 def handle_client(con: connection, client_list):
-    login_finished = False
-
     while True:
         try:
-            readable, _, _ = select.select([con.soc], [], [], 1.0)
-            if readable and not login_finished:
-                if client_list == login_clients:
-                    signup, username, password = protocol4.recv_credentials(con.soc)
-                    print(signup, username, password)
-                    if signup:
-                        if handle_signup(username, password):
-                            con.soc.send("signup_success".encode())
-                        else:
-                            con.soc.send("signup_fail".encode())
+            """readable, _, _ = select.select([con.soc], [], [], 1.0)
+            if readable and not login_finished:"""
+            if client_list == login_clients:
+                signup, username, password = protocol4.recv_credentials(con.soc)
+                print(signup, username, password)
+                if signup:
+                    if handle_signup(username, password):
+                        con.soc.send("signup_success".encode())
                     else:
-                        res = handle_login(username, password)
-                        if res == "True":
-                            valid_addresses.append(con.index)
-                            con.soc.send("login_success".encode())
-                            login_finished = False
-                            con.soc.close()
-                        elif res == "Wrong Username":
-                            con.soc.send("login_failU".encode())
-                        elif res == "Wrong Password":
-                            con.soc.send("login_failP".encode())
+                        con.soc.send("signup_fail".encode())
                 else:
-                    if con.index in valid_addresses:
-                        con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
-                        if con in aud_clients:
-                            broadcast(con, aud_clients)
-                        else:
-                            broadcast(con, vid_clients)
+                    res = handle_login(username, password)
+                    if res == "True":
+                        valid_addresses.append(con.index)
+                        con.soc.send("login_success".encode())
+                        con.soc.close()
+                    elif res == "Wrong Username":
+                        con.soc.send("login_failU".encode())
+                    elif res == "Wrong Password":
+                        con.soc.send("login_failP".encode())
+            else:
+                if con.index in valid_addresses:
+                    con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
+                    print(con.frame)
+                    if con in aud_clients:
+                        broadcast(con, aud_clients)
+                    else:
+                        broadcast(con, vid_clients)
         except (ConnectionResetError, socket.error) as e:
             print(f"Connection error: {e}")
             remove_client(con, client_list)
@@ -214,6 +209,6 @@ def create_users_table():
 
 
 create_users_table()
-Thread(target=accept_connections, args=(vid_server_socket, vid_clients,)).start()
-Thread(target=accept_connections, args=(aud_server_socket, aud_clients,)).start()
+Thread(target=accept_connections_udp, args=(vid_server_socket, vid_clients,)).start()
+Thread(target=accept_connections_udp, args=(aud_server_socket, aud_clients,)).start()
 Thread(target=accept_connections_tcp, args=(login_server_socket, login_clients,)).start()
