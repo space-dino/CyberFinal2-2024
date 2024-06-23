@@ -234,15 +234,17 @@ class Client:
     def receive_vid(self):
         while self.up:
             try:
-                """readable, _, _ = select.select([self.video_socket], [], [], 1.0)
-                if readable:"""
-                frame, self.vid_data, cpos, self.my_index = protocol4.receive_frame(self.video_socket,
-                                                                                       self.vid_data)
+                frame, self.vid_data, cpos, source_index = protocol4.receive_frame(self.video_socket, self.vid_data)
                 decompressed_frame = lz4.frame.decompress(frame)
                 nparr = np.frombuffer(decompressed_frame, np.uint8)
                 img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-                self.draw_GUI_frame(img_np, cpos, "")
+                # Debugging output
+                print(f"Received frame from source index: {source_index}")
+
+                # Ensure that frames from other clients are displayed
+                if source_index != self.my_index:
+                    self.draw_GUI_frame(img_np, cpos, "")
             except (ConnectionResetError, socket.error) as e:
                 print(f"Error receiving video frame: {e}")
                 self.close_connection()

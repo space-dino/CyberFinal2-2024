@@ -5,13 +5,9 @@ import socket
 payload_size = struct.calcsize("Q")  # unsigned Long Long = 8 bytes
 index_size = struct.calcsize("I")  # unsigned Int = 4 bytes
 
-
 def send_frame(soc: socket.socket, frame, dest: int, source: int):
     data = pickle.dumps(frame)
     data_len = len(data)
-
-    # Debugging statements
-    # print(f"dest: {dest}, source: {source}, data_len: {data_len}")
 
     # Ensure that the values are within the allowable range
     if not (0 <= dest <= 0xFFFFFFFF):
@@ -28,7 +24,6 @@ def send_frame(soc: socket.socket, frame, dest: int, source: int):
     except TypeError:
         print("connection closed")
 
-
 def receive_frame(soc: socket.socket, data: bytes):
     packed_dest, data = receive_parameter(soc, data, index_size)  # index
     dest = struct.unpack("I", packed_dest)[0]
@@ -43,38 +38,6 @@ def receive_frame(soc: socket.socket, data: bytes):
     frame = pickle.loads(frame_data)
 
     return frame, data, dest, source
-
-
-def send_credentials(soc: socket.socket, signup: bool, username: str, password: str):
-    sign_char = 'l'
-    if signup:
-        sign_char = 's'
-    message = sign_char + str(len(username)).zfill(4) + username + str(len(password)).zfill(4) + password
-    print(message)
-
-    try:
-        soc.send(message.encode())
-    except TypeError:
-        print("connection closed")
-
-
-def recv_credentials(soc: socket.socket):
-    signup = soc.recv(1)
-    print(signup.decode())
-    ul = int(soc.recv(4))
-    username = soc.recv(ul)
-    pl = int(soc.recv(4))
-    password = soc.recv(pl)
-
-    print("ul:", ul, "username:", username)
-
-    if signup.decode() == 'l':
-        signup = False
-    else:
-        signup = True
-
-    return signup, username.decode(), password.decode()
-
 
 def receive_parameter(soc: socket.socket, data, size):
     while len(data) < size:
