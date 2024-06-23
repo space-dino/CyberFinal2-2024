@@ -9,7 +9,7 @@ import pyaudio
 import time
 import numpy as np
 import lz4.frame
-import protocol4
+import protocolGPT2 as protocol4
 import select
 import zlib
 
@@ -218,7 +218,7 @@ class Client:
             _, encoded_frame = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             compressed_frame = lz4.frame.compress(encoded_frame.tobytes(), compression_level=lz4.frame.COMPRESSIONLEVEL_MAX)
             try:
-                protocol4.send_frame(self.video_socket, compressed_frame, 0, 0, self.my_index)
+                protocol4.send_frame(self.video_socket, compressed_frame, 0, self.my_index)
             except (BrokenPipeError, ConnectionResetError, socket.error) as e:
                 print(f"Error sending video frame: {e}")
                 self.close_connection()
@@ -236,7 +236,7 @@ class Client:
             try:
                 """readable, _, _ = select.select([self.video_socket], [], [], 1.0)
                 if readable:"""
-                frame, self.vid_data, _, cpos, self.my_index = protocol4.receive_frame(self.video_socket,
+                frame, self.vid_data, cpos, self.my_index = protocol4.receive_frame(self.video_socket,
                                                                                        self.vid_data)
                 decompressed_frame = lz4.frame.decompress(frame)
                 nparr = np.frombuffer(decompressed_frame, np.uint8)
@@ -255,7 +255,7 @@ class Client:
             else:
                 try:
                     data = zlib.compress(self.in_stream.read(self.A_CHUNK))
-                    protocol4.send_frame(self.audio_socket, data, 0, 0, self.my_index)
+                    protocol4.send_frame(self.audio_socket, data, 0, self.my_index)
                 except (BrokenPipeError, ConnectionResetError, socket.error) as e:
                     print(f"Error sending audio data: {e}")
                     self.close_connection()

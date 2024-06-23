@@ -1,6 +1,6 @@
 import socket
 from threading import Thread
-import protocol4
+import protocolGPT2 as protocol4  # Corrected import
 import sqlite3
 import bcrypt
 
@@ -33,7 +33,6 @@ aud_clients = {}
 login_clients = []
 valid_addresses = []
 
-
 # Connection class
 class connection:
     def __init__(self, soc: socket.socket, index: int, addr=None):
@@ -42,7 +41,6 @@ class connection:
         self.frame = b''
         self.data = b''
         self.index = index
-
 
 # Accept TCP connections
 def accept_connections_tcp(soc: socket.socket, lis):
@@ -57,7 +55,6 @@ def accept_connections_tcp(soc: socket.socket, lis):
 
         Thread(target=handle_client, args=(con, lis,)).start()
 
-
 # Accept UDP connections
 def accept_connections_udp(soc: socket.socket, lis):
     while True:
@@ -67,79 +64,66 @@ def accept_connections_udp(soc: socket.socket, lis):
         if addr not in lis:
             con = connection(soc, cli_index, addr)
             lis[addr] = con
-            if lis == vid_clients:
+            if soc == vid_server_socket:
                 print(f"GOT VIDEO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
-            elif lis == aud_clients:
+            elif soc == aud_server_socket:
                 print(f"GOT AUDIO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
-
-        con = lis[addr]
-        con.data = data
-        Thread(target=handle_client, args=(con, lis,)).start()
-
+            Thread(target=handle_client, args=(con, lis,)).start()
+        else:
+            lis[addr].data = data
 
 # Handle clients
 def handle_client(con: connection, client_list):
-    try:
-        if con in login_clients:
-            signup, username, password = protocol4.recv_credentials(con.soc)
-            print(signup, username, password)
-            if signup:
-                if handle_signup(username, password):
-                    con.soc.send("signup_success".encode())
+    while True:
+        try:
+            if con in login_clients:
+                signup, username, password = protocol4.recv_credentials(con.soc)
+                print(signup, username, password)
+                if signup:
+                    if handle_signup(username, password):
+                        con.soc.send("signup_success".encode())
+                    else:
+                        con.soc.send("signup_fail".encode())
                 else:
-                    con.soc.send("signup_fail".encode())
+                    res = handle_login(username, password)
+                    if res == "True":
+                        valid_addresses.append(con.index)
+                        con.soc.send("login_success".encode())
+                        con.soc.close()
+                    elif res == "Wrong Username":
+                        con.soc.send("login_failU".encode())
+                    elif res == "Wrong Password":
+                        con.soc.send("login_failP".encode())
             else:
-                res = handle_login(username, password)
-                if res == "True":
-                    valid_addresses.append(con.index)
-                    con.soc.send("login_success".encode())
-                    con.soc.close()
-                elif res == "Wrong Username":
-                    con.soc.send("login_failU".encode())
-                elif res == "Wrong Password":
-                    con.soc.send("login_failP".encode())
-        else:
-            if con.index in valid_addresses:
-                if con.addr:
-                    # Process UDP data
-                    con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
-                    # print(con.frame)
-                    broadcast(con, client_list.values())
-                else:
-                    """******************************************************* i think that this can be removed::::"""
-                    # Process TCP data
-                    con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
-                    # print(con.frame)
-                    broadcast(con, client_list)
-    except (ConnectionResetError, socket.error) as e:
-        print(f"Connection error: {e}")
-        remove_client(con, client_list)
-    except ValueError as e:
-        print(f"Login removed")
-        remove_client(con, client_list)
+                if con.index in valid_addresses:
+                    if con.addr:  # This is a UDP connection
+                        con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
+                        print(con.frame)
+                        if con in aud_clients.values():
+                            broadcast(con, aud_clients)
+                        else:
+                            broadcast(con, vid_clients)
+        except (ConnectionResetError, socket.error) as e:
+            print(f"Connection error: {e}")
+            remove_client(con, client_list)
+            break
+        except ValueError as e:
+            print(f"Login removed")
+            remove_client(con, client_list)
+            break
 
-
-# Hash and check passwords
-def hash_password(password):
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
-    return hashed.decode('utf-8')
-
-
-def check_password(stored_password, plain_password):
-    return bcrypt.checkpw(plain_password.encode('utf-8'), stored_password.encode('utf-8'))
-
-
-# Handle signup
+# Handle signups and logins
 def handle_signup(username, password):
     # Connect to the database
     sq = sqlite3.connect("video_chat.db")
     cur = sq.cursor()
+
     try:
         # Check if the username already exists in the users table
         cur.execute("SELECT 1 FROM users WHERE username = ?", (username,))
         if cur.fetchone() is not None:
             return False
+
         # Insert the new user into the users table
         cur.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hash_password(password)))
         sq.commit()
@@ -150,17 +134,18 @@ def handle_signup(username, password):
         # Ensure the cursor and connection are closed properly
         cur.close()
         sq.close()
+
     return True
 
-
-# Handle login
 def handle_login(username, password):
     sq = sqlite3.connect("video_chat.db")
     cur = sq.cursor()
+
     # Check if the username exists in the users table
     cur.execute("SELECT 1 FROM users WHERE username = ?", (username,))
     if cur.fetchone() is None:
         return "Wrong Username"
+
     cur.execute("SELECT password FROM users WHERE username=?", (username,))
     stored_password = cur.fetchone()
     cur.close()
@@ -170,10 +155,16 @@ def handle_login(username, password):
             return "True"
     return "Wrong Password"
 
+def hash_password(password):
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+    return hashed.decode('utf-8')
 
-# Broadcast frame to other clients
+def check_password(stored_password, plain_password):
+    return bcrypt.checkpw(plain_password.encode('utf-8'), stored_password.encode('utf-8'))
+
 def broadcast(con, client_list):
-    for client in client_list:
+    for client in client_list.values():
         if client != con:
             ipos = get_index_pos(client)
             cpos = get_index_pos(con)
@@ -183,24 +174,25 @@ def broadcast(con, client_list):
                 print(f"Error broadcasting frame: {e}")
                 remove_client(client, client_list)
 
-
-# Get index position for sorting
-def get_index_pos(i):
+def get_index_pos(con):
     sorted_numbers = sorted([conn.index for conn in vid_clients.values()])
-    pos = sorted_numbers.index(i.index)
+    if con.index in sorted_numbers:
+        pos = sorted_numbers.index(con.index)
+    else:
+        pos = -1  # Handle the case when the index is not found
     return pos
 
-
-# Remove client from list
 def remove_client(con: connection, lis):
-    if con.addr and con.addr in lis:
+    if isinstance(lis, dict) and con.addr in lis:
+        print(f"Removing Connection {con.index}")
         del lis[con.addr]
-    elif con in lis:
-        lis.remove(con)
-    print(f"Removing Connection {con.index}")
+    else:
+        for i in lis:
+            if i.index == con.index:
+                print(f"Removing Connection {i.index}")
+                lis.remove(i)
+                break
 
-
-# Create users table if not exists
 def create_users_table():
     sq = sqlite3.connect("video_chat.db")
     cur = sq.cursor()
@@ -212,10 +204,8 @@ def create_users_table():
     cur.close()
     sq.close()
 
-
 create_users_table()
 
-# Start accepting connections
 Thread(target=accept_connections_udp, args=(vid_server_socket, vid_clients,)).start()
 Thread(target=accept_connections_udp, args=(aud_server_socket, aud_clients,)).start()
 Thread(target=accept_connections_tcp, args=(login_server_socket, login_clients,)).start()
