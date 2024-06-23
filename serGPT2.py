@@ -169,7 +169,7 @@ def broadcast(con, client_list):
             ipos = get_index_pos(client)
             cpos = get_index_pos(con)
             try:
-                protocol4.send_frame(client.soc, con.frame, 0, cpos, ipos)
+                protocol4.send_frame(client.soc, con.frame, cpos, ipos)
             except (BrokenPipeError, ConnectionResetError, socket.error) as e:
                 print(f"Error broadcasting frame: {e}")
                 remove_client(client, client_list)

@@ -8,7 +8,20 @@ index_size = struct.calcsize("I")  # unsigned Int = 4 bytes
 
 def send_frame(soc: socket.socket, frame, dest: int, source: int):
     data = pickle.dumps(frame)
-    message = struct.pack("I", dest) + struct.pack("I", source) + struct.pack("Q", len(data)) + data
+    data_len = len(data)
+
+    # Debugging statements
+    # print(f"dest: {dest}, source: {source}, data_len: {data_len}")
+
+    # Ensure that the values are within the allowable range
+    if not (0 <= dest <= 0xFFFFFFFF):
+        raise ValueError(f"Destination index out of range: {dest}")
+    if not (0 <= source <= 0xFFFFFFFF):
+        raise ValueError(f"Source index out of range: {source}")
+    if not (0 <= data_len <= 0xFFFFFFFFFFFFFFFF):
+        raise ValueError(f"Data length out of range: {data_len}")
+
+    message = struct.pack("I", dest) + struct.pack("I", source) + struct.pack("Q", data_len) + data
 
     try:
         soc.sendto(message, (soc.getpeername() if soc.getpeername() else ('<broadcast>', soc.getsockname()[1])))
