@@ -5,6 +5,7 @@ import socket
 payload_size = struct.calcsize("Q")  # unsigned Long Long = 8 bytes
 index_size = struct.calcsize("I")  # unsigned Int = 4 bytes
 
+
 def send_frame(soc: socket.socket, frame, dest: int, source: int):
     data = pickle.dumps(frame)
     data_len = len(data)
@@ -47,3 +48,33 @@ def receive_parameter(soc: socket.socket, data, size):
     data = data[size:]
 
     return parameter, data
+
+def send_credentials(soc: socket.socket, signup: bool, username: str, password: str):
+    sign_char = 'l'
+    if signup:
+        sign_char = 's'
+    message = sign_char + str(len(username)).zfill(4) + username + str(len(password)).zfill(4) + password
+    print(message)
+
+    try:
+        soc.send(message.encode())
+    except TypeError:
+        print("connection closed")
+
+
+def recv_credentials(soc: socket.socket):
+    signup = soc.recv(1)
+    print(signup.decode())
+    ul = int(soc.recv(4))
+    username = soc.recv(ul)
+    pl = int(soc.recv(4))
+    password = soc.recv(pl)
+
+    print("ul:", ul, "username:", username)
+
+    if signup.decode() == 'l':
+        signup = False
+    else:
+        signup = True
+
+    return signup, username.decode(), password.decode()
