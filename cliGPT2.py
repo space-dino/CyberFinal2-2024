@@ -237,6 +237,8 @@ class Client:
                 if not self.vid_data:
                     self.vid_data = b''
 
+                print(self.my_index)
+
                 frame, self.vid_data, cpos, source_index = protocol4.receive_frame(self.video_socket, self.vid_data)
                 decompressed_frame = lz4.frame.decompress(frame)
                 nparr = np.frombuffer(decompressed_frame, np.uint8)

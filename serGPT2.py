@@ -166,8 +166,8 @@ def check_password(stored_password, plain_password):
 def broadcast(con, client_list):
     for (address, client) in client_list.items():
         if client != con:
-            cpos = get_index_pos(client)
-            ipos = get_index_pos(con)
+            cpos = get_index_pos(client, client_list)
+            ipos = get_index_pos(con, client_list)
             try:
                 print(f"Broadcasting frame from client {ipos} to client {cpos}")
                 protocol4.send_frame(client.soc, con.frame, cpos, ipos, address)
