@@ -6,7 +6,7 @@ payload_size = struct.calcsize("Q")  # unsigned Long Long = 8 bytes
 index_size = struct.calcsize("I")  # unsigned Int = 4 bytes
 
 
-def send_frame(soc: socket.socket, frame, dest: int, source: int):
+def send_frame(soc: socket.socket, frame, dest: int, source: int, address=None):
     data = pickle.dumps(frame)
     data_len = len(data)
 
@@ -21,9 +21,14 @@ def send_frame(soc: socket.socket, frame, dest: int, source: int):
     message = struct.pack("I", dest) + struct.pack("I", source) + struct.pack("Q", data_len) + data
 
     try:
-        soc.sendto(message, (soc.getpeername() if soc.getpeername() else ('<broadcast>', soc.getsockname()[1])))
+        print(f"Sending frame from source {source} to destination {dest}, data length: {data_len}")
+        if address:
+            soc.sendto(message, address)
+        else:
+            soc.send(message)
     except TypeError:
-        print("connection closed")
+        print("Connection closed")
+
 
 def receive_frame(soc: socket.socket, data: bytes):
     packed_dest, data = receive_parameter(soc, data, index_size)  # index

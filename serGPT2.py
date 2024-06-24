@@ -164,20 +164,22 @@ def check_password(stored_password, plain_password):
     return bcrypt.checkpw(plain_password.encode('utf-8'), stored_password.encode('utf-8'))
 
 def broadcast(con, client_list):
-    for client in client_list.values():
+    for (address, client) in client_list.items():
         if client != con:
-            ipos = get_index_pos(client, client_list)
-            cpos = get_index_pos(con, client_list)
-            # try:
-            print(f"Broadcasting frame from client {cpos} to client {ipos}", client_list)
-            protocol4.send_frame(client.soc, con.frame, cpos, ipos)
-            # except (BrokenPipeError, ConnectionResetError, socket.error) as e:
-            #     print(f"Error broadcasting frame to client {ipos}: {e}")
-            #    remove_client(client, client_list)
+            cpos = get_index_pos(client)
+            ipos = get_index_pos(con)
+            try:
+                print(f"Broadcasting frame from client {ipos} to client {cpos}")
+                protocol4.send_frame(client.soc, con.frame, cpos, ipos, address)
+            except (BrokenPipeError, ConnectionResetError, socket.error) as e:
+                print(f"Connection error: {e}")
+                remove_client(client, client_list)
+
 
 
 def get_index_pos(con, lis):
     sorted_numbers = sorted([conn.index for conn in lis.values()])
+    print(sorted_numbers)
     if con.index in sorted_numbers:
         pos = sorted_numbers.index(con.index)
     else:
