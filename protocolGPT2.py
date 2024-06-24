@@ -42,7 +42,8 @@ def receive_frame(soc: socket.socket, data: bytes):
 
 def receive_parameter(soc: socket.socket, data, size):
     while len(data) < size:
-        data += soc.recv(4096)
+        bytes_data, addr = soc.recvfrom(4096)
+        data += bytes_data
 
     parameter = data[:size]
     data = data[size:]

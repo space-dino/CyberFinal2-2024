@@ -98,7 +98,7 @@ def handle_client(con: connection, client_list):
                 if con.index in valid_addresses:
                     if con.addr:  # This is a UDP connection
                         con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
-                        print(con.frame)
+                        # print(con.frame)
                         if con in aud_clients.values():
                             broadcast(con, aud_clients)
                         else:
@@ -166,16 +166,18 @@ def check_password(stored_password, plain_password):
 def broadcast(con, client_list):
     for client in client_list.values():
         if client != con:
-            ipos = get_index_pos(client)
-            cpos = get_index_pos(con)
-            try:
-                protocol4.send_frame(client.soc, con.frame, cpos, ipos)
-            except (BrokenPipeError, ConnectionResetError, socket.error) as e:
-                print(f"Error broadcasting frame: {e}")
-                remove_client(client, client_list)
+            ipos = get_index_pos(client, client_list)
+            cpos = get_index_pos(con, client_list)
+            # try:
+            print(f"Broadcasting frame from client {cpos} to client {ipos}", client_list)
+            protocol4.send_frame(client.soc, con.frame, cpos, ipos)
+            # except (BrokenPipeError, ConnectionResetError, socket.error) as e:
+            #     print(f"Error broadcasting frame to client {ipos}: {e}")
+            #    remove_client(client, client_list)
 
-def get_index_pos(con):
-    sorted_numbers = sorted([conn.index for conn in vid_clients.values()])
+
+def get_index_pos(con, lis):
+    sorted_numbers = sorted([conn.index for conn in lis.values()])
     if con.index in sorted_numbers:
         pos = sorted_numbers.index(con.index)
     else:
