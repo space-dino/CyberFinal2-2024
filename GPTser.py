@@ -1,10 +1,12 @@
 import socket
-from threading import Thread
+import cv2
 import protocol4
-import sqlite3
-import select
-import bcrypt
 import time
+import threading
+from threading import Thread
+import sqlite3
+import bcrypt
+import select
 
 vid_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 aud_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -32,14 +34,12 @@ aud_clients = []
 login_clients = []
 valid_addresses = []
 
-
 class Connection:
     def __init__(self, soc: socket.socket, index: int):
         self.soc = soc
         self.frame = b''
         self.data = b''
         self.index = index
-
 
 def accept_connections(soc: socket.socket, lis):
     while True:
@@ -59,16 +59,13 @@ def accept_connections(soc: socket.socket, lis):
 
         Thread(target=handle_client, args=(con, lis,)).start()
 
-
 def hash_password(password):
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
     return hashed.decode('utf-8')
 
-
 def check_password(stored_password, plain_password):
     return bcrypt.checkpw(plain_password.encode('utf-8'), stored_password.encode('utf-8'))
-
 
 def handle_client(con: Connection, client_list):
     login_finished = False
@@ -98,11 +95,10 @@ def handle_client(con: Connection, client_list):
                             con.soc.sendall("login_failP".encode())
                 else:
                     if con.index in valid_addresses:
-                        con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
-                        if con in aud_clients:
-                            broadcast(con, aud_clients)
+                        if client_list == aud_clients:
+                            con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
                         else:
-                            broadcast(con, vid_clients)
+                            con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
         except (ConnectionResetError, socket.error) as e:
             print(f"Connection error: {e}")
             remove_client(con, client_list)
@@ -112,32 +108,35 @@ def handle_client(con: Connection, client_list):
             remove_client(con, client_list)
             break
 
-
 def handle_signup(username, password):
+    # Connect to the database
     sq = sqlite3.connect("video_chat.db")
     cur = sq.cursor()
 
     try:
+        # Check if the username already exists in the users table
         cur.execute("SELECT 1 FROM users WHERE username = ?", (username,))
         if cur.fetchone() is not None:
             return False
 
+        # Insert the new user into the users table
         cur.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hash_password(password)))
         sq.commit()
     except sqlite3.Error as e:
         print(f"Database error: {e}")
         return False
     finally:
+        # Ensure the cursor and connection are closed properly
         cur.close()
         sq.close()
 
     return True
 
-
 def handle_login(username, password):
     sq = sqlite3.connect("video_chat.db")
     cur = sq.cursor()
 
+    # Check if the username exists in the users table
     cur.execute("SELECT 1 FROM users WHERE username = ?", (username,))
     if cur.fetchone() is None:
         return "Wrong Username"
@@ -151,7 +150,6 @@ def handle_login(username, password):
             return "True"
     return "Wrong Password"
 
-
 def broadcast(con, client_list):
     for client in client_list:
         if client != con:
@@ -163,12 +161,10 @@ def broadcast(con, client_list):
                 print(f"Error broadcasting frame: {e}")
                 remove_client(client, client_list)
 
-
 def get_index_pos(i):
     sorted_numbers = sorted([conn.index for conn in vid_clients])
     pos = sorted_numbers.index(i.index)
     return pos
-
 
 def remove_client(con: Connection, lis):
     for i in lis:
@@ -181,7 +177,6 @@ def remove_client(con: Connection, lis):
                     if o < len(lis) - 1:
                         lis[o].index -= 1
 
-
 def create_users_table():
     sq = sqlite3.connect("video_chat.db")
     cur = sq.cursor()
@@ -193,8 +188,23 @@ def create_users_table():
     cur.close()
     sq.close()
 
+def video_broadcasting():
+    while True:
+        time.sleep(1/20)  # Adjust frame rate here
+        for con in vid_clients:
+            if con.frame:
+                broadcast(con, vid_clients)
+
+def audio_broadcasting():
+    while True:
+        time.sleep(1/20)  # Adjust frame rate here
+        for con in aud_clients:
+            if con.frame:
+                broadcast(con, aud_clients)
 
 create_users_table()
 Thread(target=accept_connections, args=(vid_server_socket, vid_clients,)).start()
 Thread(target=accept_connections, args=(aud_server_socket, aud_clients,)).start()
 Thread(target=accept_connections, args=(login_server_socket, login_clients,)).start()
+Thread(target=video_broadcasting).start()
+Thread(target=audio_broadcasting).start()
