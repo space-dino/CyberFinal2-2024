@@ -1,86 +1,92 @@
 import pickle
-import struct
 import socket
+import struct
+from Crypto.Cipher import DES
 
+# Define the payload size and index size
 payload_size = struct.calcsize("Q")  # unsigned Long Long = 8 bytes
 index_size = struct.calcsize("I")  # unsigned Int = 4 bytes
 
+# DES encryption/decryption key (must be 8 bytes long)
+DES_KEY = b'8bytekey'
 
-def send_frame(soc: socket.socket, frame, dest: int, source: int, address=None):
+def des_encrypt(data):
+    cipher = DES.new(DES_KEY, DES.MODE_ECB)
+    padded_data = data + b' ' * (8 - len(data) % 8)
+    encrypted_data = cipher.encrypt(padded_data)
+    return encrypted_data
+
+def des_decrypt(data):
+    cipher = DES.new(DES_KEY, DES.MODE_ECB)
+    decrypted_data = cipher.decrypt(data).rstrip(b' ')
+    return decrypted_data
+
+def send_frame(soc: socket.socket, frame, source: int, dest: int):
     data = pickle.dumps(frame)
-    data_len = len(data)
-
-    # Ensure that the values are within the allowable range
-    if not (0 <= dest <= 0xFFFFFFFF):
-        raise ValueError(f"Destination index out of range: {dest}")
-    if not (0 <= source <= 0xFFFFFFFF):
-        raise ValueError(f"Source index out of range: {source}")
-    if not (0 <= data_len <= 0xFFFFFFFFFFFFFFFF):
-        raise ValueError(f"Data length out of range: {data_len}")
-
-    message = struct.pack("I", dest) + struct.pack("I", source) + struct.pack("Q", data_len) + data
+    encrypted_data = des_encrypt(data)
+    message = struct.pack("I", dest) + struct.pack("I", source) + struct.pack("Q", len(encrypted_data)) + encrypted_data
 
     try:
-        print(f"Sending frame from source {source} to destination {dest}, data length: {data_len}")
-        if address:
-            soc.sendto(message, address)
-        else:
-            soc.send(message)
+        soc.sendall(message)
     except TypeError:
-        print("Connection closed")
+        print("connection closed")
 
+    # Packet Structure:
+    """ 
+    dest - 4 bytes unsigned int
+    source - 4 bytes unsigned int
+    data_length - 8 bytes unsigned long long
+    data - data_length bytes data
+    """
 
 def receive_frame(soc: socket.socket, data: bytes):
-    packed_dest, data = receive_parameter(soc, data, index_size)  # index
+    packed_dest, data = receive_parameter(soc, data, index_size)  # dest
     dest = struct.unpack("I", packed_dest)[0]
 
-    packed_source, data = receive_parameter(soc, data, index_size)  # my_index
+    packed_source, data = receive_parameter(soc, data, index_size)  # source
     source = struct.unpack("I", packed_source)[0]
 
     packed_msg_size, data = receive_parameter(soc, data, payload_size)  # data_length
     msg_size = struct.unpack("Q", packed_msg_size)[0]
 
-    frame_data, data = receive_parameter(soc, data, msg_size)  # data
+    encrypted_frame_data, data = receive_parameter(soc, data, msg_size)  # data
+    frame_data = des_decrypt(encrypted_frame_data)
     frame = pickle.loads(frame_data)
 
     return frame, data, dest, source
-
-def receive_parameter(soc: socket.socket, data, size):
-    while len(data) < size:
-        bytes_data, addr = soc.recvfrom(4096)
-        data += bytes_data
-
-    parameter = data[:size]
-    data = data[size:]
-
-    return parameter, data
 
 def send_credentials(soc: socket.socket, signup: bool, username: str, password: str):
     sign_char = 'l'
     if signup:
         sign_char = 's'
     message = sign_char + str(len(username)).zfill(4) + username + str(len(password)).zfill(4) + password
-    print(message)
+    encrypted_message = des_encrypt(message.encode())
 
     try:
-        soc.send(message.encode())
+        soc.sendall(encrypted_message)
     except TypeError:
         print("connection closed")
 
-
 def recv_credentials(soc: socket.socket):
-    signup = soc.recv(1)
-    print(signup.decode())
-    ul = int(soc.recv(4))
-    username = soc.recv(ul)
-    pl = int(soc.recv(4))
-    password = soc.recv(pl)
+    encrypted_signup = soc.recv(1)
+    signup = des_decrypt(encrypted_signup).decode()
+    ul = int(des_decrypt(soc.recv(4)).decode())
+    username = des_decrypt(soc.recv(ul)).decode()
+    pl = int(des_decrypt(soc.recv(4)).decode())
+    password = des_decrypt(soc.recv(pl)).decode()
 
-    print("ul:", ul, "username:", username)
-
-    if signup.decode() == 'l':
+    if signup == 'l':
         signup = False
     else:
         signup = True
 
-    return signup, username.decode(), password.decode()
+    return signup, username, password
+
+def receive_parameter(soc: socket.socket, data, size):
+    while len(data) < size:
+        data += soc.recv(4 * 4096)
+
+    parameter = data[:size]
+    data = data[size:]
+
+    return parameter, data

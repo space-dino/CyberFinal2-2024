@@ -92,15 +92,8 @@ class Client:
 
     def setup_network(self):
         login_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-        video_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        video_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-
-        audio_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        audio_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-
+        video_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        audio_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         host = '127.0.0.1'
         port = 9997
 
@@ -170,7 +163,6 @@ class Client:
         counter = 0
         start_time = time.time()
         fps = 0
-
         while self.up:
             if not self.vid_muted:
                 ret, frame = self.vid.read()
@@ -218,7 +210,7 @@ class Client:
             _, encoded_frame = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             compressed_frame = lz4.frame.compress(encoded_frame.tobytes(), compression_level=lz4.frame.COMPRESSIONLEVEL_MAX)
             try:
-                protocol4.send_frame(self.video_socket, compressed_frame, 0, self.my_index)
+                protocol4.send_frame(self.video_socket, compressed_frame, 0, 0, self.my_index)
             except (BrokenPipeError, ConnectionResetError, socket.error) as e:
                 print(f"Error sending video frame: {e}")
                 self.close_connection()
@@ -234,27 +226,19 @@ class Client:
     def receive_vid(self):
         while self.up:
             try:
-                if not self.vid_data:
-                    self.vid_data = b''
+                readable, _, _ = select.select([self.video_socket], [], [], 1.0)
+                if readable:
+                    frame, self.vid_data, _, cpos, self.my_index = protocol4.receive_frame(self.video_socket,
+                                                                                           self.vid_data)
+                    decompressed_frame = lz4.frame.decompress(frame)
+                    nparr = np.frombuffer(decompressed_frame, np.uint8)
+                    img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-                print(self.my_index)
-
-                frame, self.vid_data, cpos, source_index = protocol4.receive_frame(self.video_socket, self.vid_data)
-                decompressed_frame = lz4.frame.decompress(frame)
-                nparr = np.frombuffer(decompressed_frame, np.uint8)
-                img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-                # Debugging output
-                print(f"Received frame from source index: {source_index}, current pos: {cpos}")
-
-                # Ensure that frames from other clients are displayed
-                if source_index != self.my_index:
                     self.draw_GUI_frame(img_np, cpos, "")
             except (ConnectionResetError, socket.error) as e:
                 print(f"Error receiving video frame: {e}")
                 self.close_connection()
                 break
-
 
     def send_aud(self):
         while self.up:
@@ -263,7 +247,7 @@ class Client:
             else:
                 try:
                     data = zlib.compress(self.in_stream.read(self.A_CHUNK))
-                    protocol4.send_frame(self.audio_socket, data, 0, self.my_index)
+                    protocol4.send_frame(self.audio_socket, data, 0, 0, self.my_index)
                 except (BrokenPipeError, ConnectionResetError, socket.error) as e:
                     print(f"Error sending audio data: {e}")
                     self.close_connection()
@@ -272,10 +256,10 @@ class Client:
     def receive_aud(self):
         while self.up:
             try:
-                """readable, _, _ = select.select([self.audio_socket], [], [], 1.0)
-                if readable:"""
-                frame, self.aud_data, *_ = protocol4.receive_frame(self.audio_socket, self.aud_data)
-                self.out_stream.write(zlib.decompress(frame))
+                readable, _, _ = select.select([self.audio_socket], [], [], 1.0)
+                if readable:
+                    frame, self.aud_data, *_ = protocol4.receive_frame(self.audio_socket, self.aud_data)
+                    self.out_stream.write(zlib.decompress(frame))
             except (ConnectionResetError, socket.error) as e:
                 print(f"Error receiving audio data: {e}")
                 self.close_connection()

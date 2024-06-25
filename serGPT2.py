@@ -1,108 +1,102 @@
 import socket
+import protocolGPT2 as protocol4
+import time
 from threading import Thread
-import protocolGPT2 as protocol4  # Corrected import
 import sqlite3
 import bcrypt
+import select
 
-# Create the sockets
-vid_server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-aud_server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+vid_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+aud_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 login_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-# Define addresses
 host = '0.0.0.0'
 port = 9997
 vid_socket_address = (host, port)
 aud_socket_address = (host, port + 1)
 login_socket_address = (host, port + 2)
 
-# Bind the sockets
 vid_server_socket.bind(vid_socket_address)
 aud_server_socket.bind(aud_socket_address)
 login_server_socket.bind(login_socket_address)
 
-# Listen for TCP connections
+vid_server_socket.listen()
+aud_server_socket.listen()
 login_server_socket.listen()
 
 print(socket.gethostname())
 print("Listening video at", vid_socket_address, "audio at", aud_socket_address, "login at", login_socket_address)
 
-# Client lists
-vid_clients = {}
-aud_clients = {}
+vid_clients = []
+aud_clients = []
 login_clients = []
 valid_addresses = []
 
-# Connection class
-class connection:
-    def __init__(self, soc: socket.socket, index: int, addr=None):
+class Connection:
+    def __init__(self, soc: socket.socket, index: int):
         self.soc = soc
-        self.addr = addr  # For UDP clients
         self.frame = b''
         self.data = b''
         self.index = index
 
-# Accept TCP connections
-def accept_connections_tcp(soc: socket.socket, lis):
+def accept_connections(soc: socket.socket, lis):
     while True:
         client_socket, addr = soc.accept()
         cli_index = int(str(addr[0]).replace(".", ""))
-        con = connection(client_socket, cli_index)
+        con = Connection(client_socket, cli_index)
         lis.append(con)
 
         if lis == login_clients:
             print(f"GOT LOGIN CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
 
+        if lis == vid_clients:
+            print(f"GOT VIDEO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
+
+        if lis == aud_clients:
+            print(f"GOT AUDIO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
+
         Thread(target=handle_client, args=(con, lis,)).start()
 
-# Accept UDP connections
-def accept_connections_udp(soc: socket.socket, lis):
-    while True:
-        data, addr = soc.recvfrom(4096)
-        cli_index = int(str(addr[0]).replace(".", ""))
+def hash_password(password):
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+    return hashed.decode('utf-8')
 
-        if addr not in lis:
-            con = connection(soc, cli_index, addr)
-            lis[addr] = con
-            if soc == vid_server_socket:
-                print(f"GOT VIDEO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
-            elif soc == aud_server_socket:
-                print(f"GOT AUDIO CONNECTION FROM: ({addr[0]}:{addr[1]}) {cli_index}\n")
-            Thread(target=handle_client, args=(con, lis,)).start()
-        else:
-            lis[addr].data = data
+def check_password(stored_password, plain_password):
+    return bcrypt.checkpw(plain_password.encode('utf-8'), stored_password.encode('utf-8'))
 
-# Handle clients
-def handle_client(con: connection, client_list):
+def handle_client(con: Connection, client_list):
+    login_finished = False
+
     while True:
         try:
-            if con in login_clients:
-                signup, username, password = protocol4.recv_credentials(con.soc)
-                print(signup, username, password)
-                if signup:
-                    if handle_signup(username, password):
-                        con.soc.send("signup_success".encode())
-                    else:
-                        con.soc.send("signup_fail".encode())
-                else:
-                    res = handle_login(username, password)
-                    if res == "True":
-                        valid_addresses.append(con.index)
-                        con.soc.send("login_success".encode())
-                        con.soc.close()
-                    elif res == "Wrong Username":
-                        con.soc.send("login_failU".encode())
-                    elif res == "Wrong Password":
-                        con.soc.send("login_failP".encode())
-            else:
-                if con.index in valid_addresses:
-                    if con.addr:  # This is a UDP connection
-                        con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
-                        # print(con.frame)
-                        if con in aud_clients.values():
-                            broadcast(con, aud_clients)
+            readable, _, _ = select.select([con.soc], [], [], 1.0)
+            if readable and not login_finished:
+                if client_list == login_clients:
+                    signup, username, password = protocol4.recv_credentials(con.soc)
+                    print(signup, username, password)
+                    if signup:
+                        if handle_signup(username, password):
+                            con.soc.sendall("signup_success".encode())
                         else:
-                            broadcast(con, vid_clients)
+                            con.soc.sendall("signup_fail".encode())
+                    else:
+                        res = handle_login(username, password)
+                        if res == "True":
+                            valid_addresses.append(con.index)
+                            con.soc.sendall("login_success".encode())
+                            login_finished = True
+                            con.soc.close()
+                        elif res == "Wrong Username":
+                            con.soc.sendall("login_failU".encode())
+                        elif res == "Wrong Password":
+                            con.soc.sendall("login_failP".encode())
+                else:
+                    if con.index in valid_addresses:
+                        if client_list == aud_clients:
+                            con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
+                        else:
+                            con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
         except (ConnectionResetError, socket.error) as e:
             print(f"Connection error: {e}")
             remove_client(con, client_list)
@@ -112,7 +106,6 @@ def handle_client(con: connection, client_list):
             remove_client(con, client_list)
             break
 
-# Handle signups and logins
 def handle_signup(username, password):
     # Connect to the database
     sq = sqlite3.connect("video_chat.db")
@@ -155,47 +148,32 @@ def handle_login(username, password):
             return "True"
     return "Wrong Password"
 
-def hash_password(password):
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
-    return hashed.decode('utf-8')
-
-def check_password(stored_password, plain_password):
-    return bcrypt.checkpw(plain_password.encode('utf-8'), stored_password.encode('utf-8'))
-
 def broadcast(con, client_list):
-    for (address, client) in client_list.items():
+    for client in client_list:
         if client != con:
-            cpos = get_index_pos(client, client_list)
-            ipos = get_index_pos(con, client_list)
+            ipos = get_index_pos(client)
+            cpos = get_index_pos(con)
             try:
-                print(f"Broadcasting frame from client {ipos} to client {cpos}")
-                protocol4.send_frame(client.soc, con.frame, cpos, ipos, address)
+                protocol4.send_frame(client.soc, con.frame, 0, cpos, ipos)
             except (BrokenPipeError, ConnectionResetError, socket.error) as e:
-                print(f"Connection error: {e}")
+                print(f"Error broadcasting frame: {e}")
                 remove_client(client, client_list)
 
-
-
-def get_index_pos(con, lis):
-    sorted_numbers = sorted([conn.index for conn in lis.values()])
-    print(sorted_numbers)
-    if con.index in sorted_numbers:
-        pos = sorted_numbers.index(con.index)
-    else:
-        pos = -1  # Handle the case when the index is not found
+def get_index_pos(i):
+    sorted_numbers = sorted([conn.index for conn in vid_clients])
+    pos = sorted_numbers.index(i.index)
     return pos
 
-def remove_client(con: connection, lis):
-    if isinstance(lis, dict) and con.addr in lis:
-        print(f"Removing Connection {con.index}")
-        del lis[con.addr]
-    else:
-        for i in lis:
-            if i.index == con.index:
-                print(f"Removing Connection {i.index}")
-                lis.remove(i)
-                break
+def remove_client(con: Connection, lis):
+    for i in lis:
+        if i.index == con.index:
+            print(f"Removing Connection {i.index}")
+            lis.remove(i)
+
+            for o in range(0, len(lis)):
+                if lis[o] is None:
+                    if o < len(lis) - 1:
+                        lis[o].index -= 1
 
 def create_users_table():
     sq = sqlite3.connect("video_chat.db")
@@ -208,8 +186,23 @@ def create_users_table():
     cur.close()
     sq.close()
 
-create_users_table()
+def video_broadcasting():
+    while True:
+        time.sleep(1/20)  # Adjust frame rate here
+        for con in vid_clients:
+            if con.frame:
+                broadcast(con, vid_clients)
 
-Thread(target=accept_connections_udp, args=(vid_server_socket, vid_clients,)).start()
-Thread(target=accept_connections_udp, args=(aud_server_socket, aud_clients,)).start()
-Thread(target=accept_connections_tcp, args=(login_server_socket, login_clients,)).start()
+def audio_broadcasting():
+    while True:
+        time.sleep(1/20)  # Adjust frame rate here
+        for con in aud_clients:
+            if con.frame:
+                broadcast(con, aud_clients)
+
+create_users_table()
+Thread(target=accept_connections, args=(vid_server_socket, vid_clients,)).start()
+Thread(target=accept_connections, args=(aud_server_socket, aud_clients,)).start()
+Thread(target=accept_connections, args=(login_server_socket, login_clients,)).start()
+Thread(target=video_broadcasting).start()
+Thread(target=audio_broadcasting).start()
