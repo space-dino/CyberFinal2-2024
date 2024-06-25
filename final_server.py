@@ -1,8 +1,6 @@
 import socket
-import cv2
-import protocol4
+import final_protocol as protocol4
 import time
-import threading
 from threading import Thread
 import sqlite3
 import bcrypt

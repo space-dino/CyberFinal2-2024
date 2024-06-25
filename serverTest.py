@@ -1,6 +1,6 @@
 import socket
 from threading import Thread
-import protocol4
+import final_protocol as protocol4
 import sqlite3
 import select
 import bcrypt
