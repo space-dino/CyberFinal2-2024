@@ -39,7 +39,7 @@ def receive_frame(soc: socket, data: bytes):
     frame_data, data = receive_parameter(soc, data, msg_size)  # data
     frame = pickle.loads(frame_data)
 
-    return frame, data, flag, index, my_index
+    return frame, data, index, my_index
 
 
 def send_credentials(soc: socket, signup: bool, username: str, password: str):
