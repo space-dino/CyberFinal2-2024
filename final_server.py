@@ -1,5 +1,5 @@
 import socket
-import final_protocol as protocol4
+import final_protocol
 import time
 from threading import Thread
 import sqlite3
@@ -73,7 +73,7 @@ def handle_client(con: Connection, client_list):
             readable, _, _ = select.select([con.soc], [], [], 1.0)
             if readable and not login_finished:
                 if client_list == login_clients:
-                    signup, username, password = protocol4.recv_credentials(con.soc)
+                    signup, username, password = final_protocol.recv_credentials(con.soc)
                     print(signup, username, password)
                     if signup:
                         if handle_signup(username, password):
@@ -94,9 +94,9 @@ def handle_client(con: Connection, client_list):
                 else:
                     if con.index in valid_addresses:
                         if client_list == aud_clients:
-                            con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
+                            con.frame, con.data, *_ = final_protocol.receive_frame(con.soc, con.data)
                         else:
-                            con.frame, con.data, *_ = protocol4.receive_frame(con.soc, con.data)
+                            con.frame, con.data, *_ = final_protocol.receive_frame(con.soc, con.data)
         except (ConnectionResetError, socket.error) as e:
             print(f"Connection error: {e}")
             remove_client(con, client_list)
@@ -154,7 +154,7 @@ def broadcast(con, client_list):
             ipos = get_index_pos(client)
             cpos = get_index_pos(con)
             try:
-                protocol4.send_frame(client.soc, con.frame, 0, cpos, ipos)
+                final_protocol.send_frame(client.soc, con.frame, cpos, ipos)
             except (BrokenPipeError, ConnectionResetError, socket.error) as e:
                 print(f"Error broadcasting frame: {e}")
                 remove_client(client, client_list)

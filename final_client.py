@@ -9,7 +9,7 @@ import pyaudio
 import time
 import numpy as np
 import lz4.frame
-import final_protocol as protocol4
+import final_protocol
 import select
 import zlib
 
@@ -103,7 +103,7 @@ class Client:
         username = self.entry.get()
         password = self.password_entry.get()
         # Send username and password to the server for signup
-        protocol4.send_credentials(self.login_socket, True, username, password)
+        final_protocol.send_credentials(self.login_socket, True, username, password)
         response = self.login_socket.recv(1024).decode()
         if response == 'signup_success':
             self.username_label.configure(text=username)
@@ -115,7 +115,7 @@ class Client:
         self.username = self.entry.get()
         password = self.password_entry.get()
         # Send username and password to the server for login
-        protocol4.send_credentials(self.login_socket, False, self.username, password)
+        final_protocol.send_credentials(self.login_socket, False, self.username, password)
         response = self.login_socket.recv(1024).decode()
         if response == 'login_success':
             self.login_socket.close()
@@ -210,7 +210,7 @@ class Client:
             _, encoded_frame = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             compressed_frame = lz4.frame.compress(encoded_frame.tobytes(), compression_level=lz4.frame.COMPRESSIONLEVEL_MAX)
             try:
-                protocol4.send_frame(self.video_socket, compressed_frame, 0, 0, self.my_index)
+                final_protocol.send_frame(self.video_socket, compressed_frame, 0, self.my_index)
             except (BrokenPipeError, ConnectionResetError, socket.error) as e:
                 print(f"Error sending video frame: {e}")
                 self.close_connection()
@@ -228,8 +228,7 @@ class Client:
             try:
                 readable, _, _ = select.select([self.video_socket], [], [], 1.0)
                 if readable:
-                    frame, self.vid_data, _, cpos, self.my_index = protocol4.receive_frame(self.video_socket,
-                                                                                           self.vid_data)
+                    frame, self.vid_data, cpos, self.my_index = final_protocol.receive_frame(self.video_socket, self.vid_data)
                     decompressed_frame = lz4.frame.decompress(frame)
                     nparr = np.frombuffer(decompressed_frame, np.uint8)
                     img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -247,7 +246,7 @@ class Client:
             else:
                 try:
                     data = zlib.compress(self.in_stream.read(self.A_CHUNK))
-                    protocol4.send_frame(self.audio_socket, data, 0, 0, self.my_index)
+                    final_protocol.send_frame(self.audio_socket, data, 0, self.my_index)
                 except (BrokenPipeError, ConnectionResetError, socket.error) as e:
                     print(f"Error sending audio data: {e}")
                     self.close_connection()
@@ -258,7 +257,7 @@ class Client:
             try:
                 readable, _, _ = select.select([self.audio_socket], [], [], 1.0)
                 if readable:
-                    frame, self.aud_data, *_ = protocol4.receive_frame(self.audio_socket, self.aud_data)
+                    frame, self.aud_data, *_ = final_protocol.receive_frame(self.audio_socket, self.aud_data)
                     self.out_stream.write(zlib.decompress(frame))
             except (ConnectionResetError, socket.error) as e:
                 print(f"Error receiving audio data: {e}")
